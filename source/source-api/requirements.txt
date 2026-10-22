@@ -1,0 +1,7 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+psycopg2-binary==2.9.10
+prometheus-fastapi-instrumentator==7.1.0
+prometheus-client==0.21.1
+PyJWT[crypto]==2.10.1
+httpx==0.28.1

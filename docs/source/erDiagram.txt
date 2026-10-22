@@ -1,0 +1,492 @@
+erDiagram
+    %% Physical schema enterprise_db.ecommerce; see README.md for scope and key conventions.
+    sim_clock {
+        bool id PK
+        timestamptz anchor_real
+        timestamptz anchor_sim
+        float8 speed
+    }
+
+    customers {
+        uuid id PK
+        varchar full_name
+        varchar email UK
+        varchar phone
+        varchar segment
+        varchar registered_channel
+        varchar tier
+        int8 total_spent
+        bool is_active
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    customer_addresses {
+        uuid id PK
+        uuid customer_id FK
+        varchar recipient_name
+        varchar phone
+        varchar street
+        varchar district
+        varchar province
+        bool is_default
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    sellers {
+        uuid id PK
+        varchar legal_name
+        varchar email UK
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    shops {
+        uuid id PK
+        uuid seller_id FK
+        varchar name UK
+        varchar shop_tier
+        varchar province
+        int4 commission_rate_bps
+        int4 penalty_points
+        bool is_active
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    categories {
+        uuid id PK
+        uuid parent_id FK "nullable"
+        varchar name
+        varchar slug UK
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    brands {
+        uuid id PK
+        varchar name UK
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    products {
+        uuid id PK
+        uuid shop_id FK
+        uuid category_id FK
+        uuid brand_id FK "nullable"
+        varchar name
+        text description
+        varchar status
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    product_skus {
+        uuid id PK
+        uuid product_id FK
+        varchar sku_code UK
+        varchar variant_name
+        int8 list_price
+        int8 price
+        int4 weight_g
+        bool is_active
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    price_history {
+        int8 id PK
+        uuid sku_id FK
+        int8 old_price "nullable"
+        int8 new_price
+        varchar reason
+        timestamptz created_at
+    }
+
+    inventory {
+        uuid sku_id PK, FK
+        uuid shop_id FK
+        int4 on_hand
+        int4 reserved
+        int4 available
+        int4 reorder_point
+        timestamptz last_restocked_at "nullable"
+        timestamptz updated_at
+    }
+
+    inventory_movements {
+        int8 id PK
+        uuid sku_id FK
+        varchar movement_type
+        int4 on_hand_delta
+        int4 reserved_delta
+        int4 on_hand_after
+        int4 reserved_after
+        varchar ref_type
+        uuid ref_id
+        timestamptz created_at
+    }
+
+    carts {
+        uuid id PK
+        uuid customer_id FK
+        varchar status
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    cart_items {
+        uuid id PK
+        uuid cart_id FK
+        uuid sku_id FK
+        int4 quantity
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    vouchers {
+        uuid id PK
+        varchar code UK
+        varchar scope
+        uuid shop_id FK "nullable"
+        varchar kind
+        int8 value
+        int8 max_discount "nullable"
+        int8 min_spend
+        int4 usage_limit
+        int4 per_customer_limit
+        timestamptz starts_at
+        timestamptz ends_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    voucher_quota_slots {
+        uuid voucher_id PK, FK
+        int2 slot PK
+        int4 capacity
+        int4 used
+    }
+
+    campaigns {
+        uuid id PK
+        varchar name
+        varchar kind
+        timestamptz starts_at
+        timestamptz ends_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    flash_sale_items {
+        uuid id PK
+        uuid campaign_id FK
+        uuid sku_id FK
+        int8 sale_price
+        int4 quota
+        int4 sold
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    checkouts {
+        uuid id PK
+        uuid customer_id FK
+        uuid cart_id FK, UK
+        uuid address_id FK
+        varchar payment_method
+        varchar status
+        int8 items_total
+        int8 shipping_total
+        int8 discount_total
+        int8 grand_total
+        timestamptz pay_by "nullable"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    orders {
+        uuid id PK
+        varchar order_number UK
+        uuid checkout_id FK
+        uuid customer_id FK
+        uuid shop_id FK
+        varchar status
+        varchar payment_method
+        int8 subtotal
+        int8 shop_discount
+        int8 platform_discount
+        int8 shipping_fee
+        int8 shipping_subsidy
+        int8 total
+        varchar ship_to_name
+        varchar ship_to_address
+        varchar ship_to_province
+        int4 delivery_attempts
+        timestamptz confirm_by "nullable"
+        varchar cancel_reason "nullable"
+        varchar cancelled_by "nullable"
+        timestamptz paid_at "nullable"
+        timestamptz ready_at "nullable"
+        timestamptz shipped_at "nullable"
+        timestamptz delivered_at "nullable"
+        timestamptz completed_at "nullable"
+        timestamptz cancelled_at "nullable"
+        int4 version
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    order_items {
+        uuid id PK
+        uuid order_id FK
+        uuid sku_id FK
+        uuid product_id FK
+        int4 quantity
+        int8 list_price
+        int8 unit_price
+        int8 line_total
+        int8 shop_discount
+        int8 platform_discount
+        int8 net_amount
+        uuid campaign_item_id FK "nullable"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    voucher_usages {
+        uuid id PK
+        uuid voucher_id FK
+        uuid customer_id FK
+        uuid checkout_id FK
+        uuid order_id FK "nullable"
+        int8 amount
+        int2 quota_slot
+        varchar status
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    order_status_history {
+        int8 id PK
+        uuid order_id FK
+        varchar from_status "nullable"
+        varchar to_status
+        varchar actor
+        varchar reason "nullable"
+        timestamptz created_at
+    }
+
+    payments {
+        uuid id PK
+        uuid checkout_id FK
+        uuid order_id FK "nullable"
+        varchar method
+        varchar provider
+        varchar transaction_ref UK
+        int8 amount
+        varchar status
+        varchar failure_reason "nullable"
+        timestamptz paid_at "nullable"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    refunds {
+        uuid id PK
+        uuid payment_id FK
+        uuid order_id FK "nullable"
+        uuid return_id FK "nullable"
+        int8 amount
+        varchar reason
+        varchar status
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    shipments {
+        uuid id PK
+        uuid order_id FK
+        uuid return_id FK "nullable"
+        varchar direction
+        varchar carrier
+        varchar tracking_number UK
+        varchar status
+        varchar from_province
+        varchar to_province
+        int4 attempts
+        timestamptz last_event_time "nullable"
+        timestamptz picked_up_at "nullable"
+        timestamptz delivered_at "nullable"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    shipment_events {
+        int8 id PK
+        uuid shipment_id FK
+        varchar carrier_event_id UK
+        varchar event_type
+        timestamptz event_time
+        varchar location "nullable"
+        bool applied
+        timestamptz created_at
+    }
+
+    returns {
+        uuid id PK
+        uuid order_id FK, UK
+        uuid customer_id FK
+        uuid shop_id FK
+        varchar reason
+        varchar status
+        int8 refund_amount
+        timestamptz respond_by
+        timestamptz resolved_at "nullable"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    return_items {
+        uuid id PK
+        uuid return_id FK
+        uuid order_item_id FK, UK
+        int4 quantity
+        int8 refund_amount
+        varchar condition "nullable"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    seller_payouts {
+        uuid id PK
+        uuid shop_id FK
+        int8 amount
+        varchar status
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    seller_ledger_entries {
+        int8 id PK
+        uuid shop_id FK
+        uuid order_id FK "nullable"
+        uuid payout_id FK "nullable"
+        varchar entry_type
+        int8 amount
+        timestamptz created_at
+    }
+
+    shop_wallets {
+        uuid shop_id PK, FK
+        int8 balance
+        timestamptz updated_at
+    }
+
+    wallet_pending {
+        int8 entry_id PK, FK
+        uuid shop_id
+        int8 amount
+    }
+
+    product_reviews {
+        uuid id PK
+        uuid order_item_id FK, UK
+        uuid order_id FK
+        uuid product_id FK
+        uuid shop_id FK
+        uuid customer_id FK
+        int2 rating
+        varchar comment "nullable"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    outbox_events {
+        uuid id PK
+        varchar aggregatetype
+        varchar aggregateid
+        varchar type
+        jsonb payload
+        timestamptz created_at
+    }
+
+    idempotency_keys {
+        varchar key PK
+        varchar endpoint
+        varchar request_hash
+        int4 status_code "nullable"
+        jsonb response "nullable"
+        timestamptz created_at
+    }
+
+    cdc_heartbeat {
+        int4 id PK
+        timestamptz ts "nullable"
+    }
+
+    debezium_signals {
+        varchar id PK
+        varchar type
+        text data "nullable"
+    }
+
+    customers ||--o{ customer_addresses : customer_id
+    customers ||--o{ carts : customer_id
+    customers ||--o{ checkouts : customer_id
+    customers ||--o{ orders : customer_id
+    customers ||--o{ voucher_usages : customer_id
+    customers ||--o{ returns : customer_id
+    customers ||--o{ product_reviews : customer_id
+    customer_addresses ||--o{ checkouts : address_id
+    sellers ||--o{ shops : seller_id
+    shops ||--o{ products : shop_id
+    shops ||--o{ inventory : shop_id
+    shops |o--o{ vouchers : shop_id
+    shops ||--o{ orders : shop_id
+    shops ||--o{ returns : shop_id
+    shops ||--o{ seller_payouts : shop_id
+    shops ||--o{ seller_ledger_entries : shop_id
+    shops ||--o| shop_wallets : shop_id
+    shops ||--o{ product_reviews : shop_id
+    categories |o--o{ categories : parent_id
+    categories ||--o{ products : category_id
+    brands |o--o{ products : brand_id
+    products ||--o{ product_skus : product_id
+    products ||--o{ order_items : product_id
+    products ||--o{ product_reviews : product_id
+    product_skus ||--o{ price_history : sku_id
+    product_skus ||--o| inventory : sku_id
+    product_skus ||--o{ inventory_movements : sku_id
+    product_skus ||--o{ cart_items : sku_id
+    product_skus ||--o{ flash_sale_items : sku_id
+    product_skus ||--o{ order_items : sku_id
+    carts ||--o{ cart_items : cart_id
+    carts ||--o| checkouts : cart_id
+    vouchers ||--o{ voucher_quota_slots : voucher_id
+    vouchers ||--o{ voucher_usages : voucher_id
+    campaigns ||--o{ flash_sale_items : campaign_id
+    flash_sale_items |o--o{ order_items : campaign_item_id
+    checkouts ||--o{ orders : checkout_id
+    checkouts ||--o{ voucher_usages : checkout_id
+    checkouts ||--o{ payments : checkout_id
+    orders ||--o{ order_items : order_id
+    orders |o--o{ voucher_usages : order_id
+    orders ||--o{ order_status_history : order_id
+    orders |o--o{ payments : order_id
+    orders |o--o{ refunds : order_id
+    orders ||--o{ shipments : order_id
+    orders ||--o| returns : order_id
+    orders |o--o{ seller_ledger_entries : order_id
+    orders ||--o{ product_reviews : order_id
+    order_items ||--o| return_items : order_item_id
+    order_items ||--o| product_reviews : order_item_id
+    payments ||--o{ refunds : payment_id
+    shipments ||--o{ shipment_events : shipment_id
+    returns |o--o{ refunds : return_id
+    returns |o--o{ shipments : return_id
+    returns ||--o{ return_items : return_id
+    seller_payouts |o--o{ seller_ledger_entries : payout_id
+    seller_ledger_entries ||--o| wallet_pending : entry_id

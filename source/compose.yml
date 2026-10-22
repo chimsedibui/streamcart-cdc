@@ -1,0 +1,144 @@
+# Source system: the marketplace's OLTP database, the only writer to it, and the simulated traffic
+services:
+  postgres:
+    restart: unless-stopped
+    image: postgres:15
+    ports:
+      - 127.0.0.1:5432:5432
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_DB: enterprise_db
+    volumes:
+      - ../secrets/postgres_password:/run/secrets/postgres_password:ro
+      - ../secrets/cdc_db_password:/run/secrets/cdc_db_password:ro
+      - ../secrets/monitor_password:/run/secrets/monitor_password:ro
+      - ../secrets/source_api_db_password:/run/secrets/source_api_db_password:ro
+      - ../secrets/app_reader_password:/run/secrets/app_reader_password:ro
+      - ../secrets/identity_db_password:/run/secrets/identity_db_password:ro
+      # numbered so the order holds under any collation (the entrypoint's glob ignores punctuation)
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ../observability/setup-postgres.sql:/docker-entrypoint-initdb.d/02-monitoring.sql:ro
+      - ./postgres/roles.sql:/docker-entrypoint-initdb.d/03-roles.sql:ro
+      - ./postgres/passwords.sh:/docker-entrypoint-initdb.d/04-passwords.sh:ro
+      - ./postgres/identity.sh:/docker-entrypoint-initdb.d/05-identity.sh:ro
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf
+      - ./postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf
+      - ./postgres/data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d enterprise_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # The only writer to PostgreSQL: business commands, outbox events, idempotency
+  source-api:
+    restart: unless-stopped
+    build: ./source-api
+    container_name: cdc-source-api
+    hostname: source-api
+    ports:
+      - 127.0.0.1:8100:8100   # OpenAPI docs at /docs
+    environment:
+      PG_HOST: postgres
+      PG_PORT: 5432
+      PG_USER: source_api                      # DML only (source/postgres/roles.sql)
+      PG_PASSWORD_FILE: /run/secrets/source_api_db_password
+      PG_DB: enterprise_db
+      # Python runs one core per process: 2 workers capped the API at ~380 requests/s under load tests
+      API_WORKERS: ${API_WORKERS:-6}
+      DB_POOL_MAX: ${DB_POOL_MAX:-12}          # per worker: 6 x 12 = 72 of PostgreSQL's 200 connections
+      AUTH_MODE: ${AUTH_MODE:-enforce}          # off | permissive | enforce (app/auth.py)
+      AUTH_ISSUER: http://identity:8300
+    volumes:
+      - ../secrets/webhooks:/run/secrets/webhooks:ro   # partner signing keys (payment gateways, carriers)
+      - ../secrets/source_api_db_password:/run/secrets/source_api_db_password:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      identity:                    # tokens are verified against its JWKS
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8100/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Logins and tokens: buyers and sellers register and sign in here; service clients get scoped tokens
+  identity:
+    restart: unless-stopped
+    build: ./identity
+    container_name: cdc-identity
+    hostname: identity
+    ports:
+      - 127.0.0.1:8300:8300
+    environment:
+      DB_HOST: postgres
+      DB_PASSWORD_FILE: /run/secrets/identity_db_password
+      SOURCE_API_URL: http://source-api:8100
+    volumes:
+      - identity_keys:/keys                      # Ed25519 signing key, generated on first start
+      - ../secrets/identity_db_password:/run/secrets/identity_db_password:ro
+      - ../secrets/password_pepper:/run/secrets/password_pepper:ro
+      - ../secrets/admin_password:/run/secrets/admin_password:ro
+      - ../secrets/clients:/run/secrets/clients:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8300/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Simulated users and external systems; changes data only through the Source API
+  simulator:
+    restart: unless-stopped
+    build: ./simulator
+    container_name: cdc-simulator
+    hostname: simulator
+    ports:
+      - 127.0.0.1:8200:8200
+    environment:
+      SOURCE_API_URL: http://source-api:8100
+      SIM_SCALE: ${SIM_SCALE:-medium}
+      SIM_AUTO_SEED: ${SIM_AUTO_SEED:-true}
+      SIM_SPEED: ${SIM_SPEED:-240}           # business clock speed (×wall clock)
+      IDENTITY_URL: http://identity:8300
+    volumes:
+      - ../secrets/clients/sim-orchestrator:/run/secrets/clients/sim-orchestrator:ro
+      - ../secrets/webhooks:/run/secrets/webhooks:ro    # it plays the payment gateways and carriers
+    depends_on:
+      source-api:
+        condition: service_healthy
+
+  # Extra simulators for load tests (quality/load_test.sh): same actors, no seeding, controlled inside the container
+  simulator-load:
+    build: ./simulator
+    profiles: ["load"]
+    environment:
+      SOURCE_API_URL: http://source-api:8100
+      SIM_SCALE: ${SIM_SCALE:-medium}
+      SIM_AUTO_SEED: "false"
+      SIM_SPEED: ${SIM_SPEED:-240}
+      IDENTITY_URL: http://identity:8300
+    volumes:
+      - ../secrets/clients/sim-orchestrator:/run/secrets/clients/sim-orchestrator:ro
+      - ../secrets/webhooks:/run/secrets/webhooks:ro
+    depends_on:
+      source-api:
+        condition: service_healthy
+
+  adminer:
+    restart: unless-stopped
+    image: adminer:6.1.2
+    container_name: cdc-adminer
+    ports:
+      - 127.0.0.1:8081:8080
+
+volumes:
+  identity_keys:

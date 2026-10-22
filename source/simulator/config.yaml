@@ -1,0 +1,116 @@
+# Traffic simulator settings.
+#
+# Time model: the Source API keeps a business clock (ecommerce.business_now()) running at `clock.speed` ×
+# wall-clock time. Every behaviour below is a RATE PER BUSINESS HOUR; each tick turns it into a probability
+# for the business time that elapsed (p = 1 − e^(−rate·Δt)), so results do not depend on tick length or speed.
+#
+# Environment overrides: SOURCE_API_URL, SIM_SCALE (preset name), SIM_AUTO_SEED (true/false), SIM_SPEED.
+
+source_api_url: http://source-api:8100
+
+clock:
+  speed: 240               # 1 business day = 6 real minutes; set on start (Control Center can change it)
+
+scale:
+  preset: medium
+  presets:                 # free to edit or add presets
+    small:  { shops: 10,  skus: 200,  customers: 500 }
+    medium: { shops: 50,  skus: 1000, customers: 5000 }
+    large:  { shops: 200, skus: 5000, customers: 30000 }
+  shop_tiers: { MALL: 0.10, PREFERRED: 0.25, NORMAL: 0.65 }
+  lazy_shop_ratio: 0.10    # NORMAL shops that often miss the 2-day packing SLA
+  shop_voucher_ratio: 0.4  # shops that run their own voucher
+
+seed:
+  auto: true               # create catalog, shops, listings, shop vouchers and customers through the API on start
+  concurrency: 8
+
+tick:
+  interval_s: 1            # wall-clock seconds between ticks
+  sessions_per_hour: 150   # buyer sessions per business hour at profile 1.0 (Control Center slider)
+  new_customers_per_hour: 12
+
+traffic:
+  # relative intensity by business hour (0–23): quiet nights, lunch bump, evening peak
+  hourly_profile: [0.25, 0.15, 0.08, 0.05, 0.05, 0.08, 0.2, 0.45, 0.7, 0.85, 0.95, 1.0,
+                   1.25, 1.1, 0.9, 0.85, 0.9, 1.0, 1.1, 1.3, 1.6, 1.8, 1.6, 0.8]
+  weekend_boost: 1.2
+  popularity_zipf_s: 1.0   # SKU popularity ~ 1 / rank^s: a few best-sellers take most orders
+  max_parallel_calls: 16
+
+buyer:
+  segment_mix: { NEW: 0.35, REGULAR: 0.35, BARGAIN_HUNTER: 0.15, LOYAL: 0.10, BUSINESS: 0.05 }
+  segment_activity: { NEW: 0.7, REGULAR: 1.5, BARGAIN_HUNTER: 1.5, LOYAL: 3.0, BUSINESS: 1.0 }   # who shows up
+  checkout_ratio: { NEW: 0.35, REGULAR: 0.5, BARGAIN_HUNTER: 0.55, LOYAL: 0.7, BUSINESS: 0.6 }
+  voucher_use: { NEW: 0.4, REGULAR: 0.45, BARGAIN_HUNTER: 0.95, LOYAL: 0.5, BUSINESS: 0.3 }
+  items_per_session: [1, 3]
+  quantity_weights: [70, 20, 10]          # 1, 2 or 3 units (BUSINESS buys up to 5)
+  edit_cart_ratio: 0.2
+  payment_methods: { COD: 0.45, WALLET: 0.25, CARD: 0.15, BANK_TRANSFER: 0.15 }
+  return_to_cart_per_hour: 3              # past carts picked up again and checked out
+  cancel_unpaid_rate: 0.02                # per UNPAID order per business hour
+  cancel_to_ship_rate: 0.004
+  confirm_received_rate: 0.008            # per DELIVERED order per hour; the rest auto-complete after 3 days
+  return_request_rate: 0.0012             # per DELIVERED order per hour (~6–8 % of orders)
+  return_reasons: { DAMAGED: 0.25, WRONG_ITEM: 0.15, NOT_AS_DESCRIBED: 0.3, MISSING_PARTS: 0.1, CHANGED_MIND: 0.2 }
+  partial_return_ratio: 0.4
+  dispute_rate: 0.08                      # per REJECTED return per hour (about half dispute within the day)
+  review_rate: 0.01                       # per COMPLETED order per hour, once
+  ratings: [3, 4, 10, 28, 55]             # weights for 1..5 stars; lazy shops shift towards 1–3
+
+payment_gateway:                          # mock provider calling POST /payments/webhook
+  delay_s: [10, 300]                      # business seconds after checkout
+  success_rate: 0.92
+  never_pay_rate: 0.06                    # buyer closes the payment page; checkout expires after 15 min
+  retry_after_failure: 0.5
+  duplicate_callback_rate: 0.05
+  late_callback_rate: 0.02                # success arrives after the payment window (→ automatic refund)
+  late_delay_s: 1500
+
+seller:
+  pack_rate: { MALL: 0.35, PREFERRED: 0.2, NORMAL: 0.1, LAZY: 0.01 }   # per TO_SHIP order per business hour
+  out_of_stock_cancel_rate: 0.002
+  restock_rate: 0.1                       # per low-stock SKU per hour
+  restock_units: [30, 300]
+  price_change_rate: 0.0015               # per SKU per hour (±5–15 %)
+  return_response_rate: 0.05              # per REQUESTED return per hour (deadline 2 days, then auto-approve)
+  return_approve_ratio: 0.7
+  inspect_rate: 0.2                       # per RECEIVED return parcel per hour
+  sellable_ratio: 0.7
+
+carrier:                                  # mock carriers calling POST /logistics/webhook with tracking events
+  pickup_rate: 0.2                        # per parcel per business hour
+  transit_hours: { SAME_PROVINCE: 12, SAME_REGION: 30, OTHER: 60 }
+  out_for_delivery_rate: 0.4
+  delivery_failure_ratio: 0.07            # per attempt
+  redelivery_rate: 0.08
+  return_to_sender_rate: 0.05             # after the 3rd failed attempt
+  duplicate_callback_rate: 0.03           # same carrier_event_id redelivered
+  late_scan_rate: 0.04                    # an older IN_TRANSIT scan arrives after a newer event (stale)
+
+ops:                                      # platform operations agent
+  dispute_resolve_rate: 0.1               # per DISPUTED return per hour
+  dispute_refund_ratio: 0.6
+  daily_vouchers:                         # issued at each business midnight
+    - { prefix: GIAM50K, kind: FIXED, value: 50000, min_spend: 500000, usage_limit: 300 }
+    - { prefix: SALE10, kind: PERCENT, value: 1000, max_discount: 100000, min_spend: 200000, usage_limit: 200 }
+    - { prefix: FREESHIP, kind: FREESHIP, value: 30000, usage_limit: 1500 }
+  flash_slots: [0, 12, 20]                # business hours when a daily flash sale opens
+  flash_hours: 2
+  flash_skus: 15
+  flash_discount: [0.3, 0.5]
+  flash_quota: [20, 80]
+  flash_boost: 2.0                        # traffic multiplier while a flash sale runs
+  mega_sale:                              # "11.11" scenario, started from the Control Center
+    hours: 24
+    skus: 60
+    boost: 3.0
+    midnight_spike: 8.0                   # first business hour
+    vouchers:
+      - { prefix: MEGA100K, kind: FIXED, value: 100000, min_spend: 800000, usage_limit: 2000 }
+      - { prefix: MEGA15, kind: PERCENT, value: 1500, max_discount: 200000, min_spend: 300000, usage_limit: 3000 }
+      - { prefix: MEGASHIP, kind: FREESHIP, value: 50000, usage_limit: 10000 }
+
+auth:
+  login_ratio: 0.05          # sessions of buyers this simulator signed up that start with a password login
+  wrong_password_ratio: 0.02 # of those, a mistyped password first (counts toward the account lockout)

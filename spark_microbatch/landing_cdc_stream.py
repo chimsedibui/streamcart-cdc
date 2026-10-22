@@ -22,7 +22,7 @@ TRIGGER_INTERVAL = os.getenv("TRIGGER_INTERVAL", "30 seconds")
 CATALOG = os.getenv("ICEBERG_CATALOG", "lakehouse")
 ICEBERG_REST_URI = os.getenv("ICEBERG_REST_URI", "http://iceberg-rest:8181")
 ICEBERG_WAREHOUSE = os.getenv("ICEBERG_WAREHOUSE", "s3://warehouse/")
-S3_ENDPOINT = os.getenv("S3_ENDPOINT", "http://minio:9000")
+S3_ENDPOINT = os.getenv("S3_ENDPOINT", "http://seaweedfs:8333")
 
 LANDING_TABLE = f"{CATALOG}.landing.cdc_events"
 CHECKPOINT_DIR = os.getenv(
@@ -48,6 +48,9 @@ def build_spark() -> SparkSession:
         .config(f"spark.sql.catalog.{CATALOG}.s3.endpoint", S3_ENDPOINT)
         .config(f"spark.sql.catalog.{CATALOG}.s3.path-style-access", "true")
         .config("spark.sql.shuffle.partitions", "4")
+        # The Kafka source declares every column nullable; topic, partition, offset and timestamp
+        # are never null, so the table keeps them NOT NULL and the write skips that check.
+        .config("spark.sql.iceberg.check-nullability", "false")
         .getOrCreate()
     )
 

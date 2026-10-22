@@ -1,9 +1,13 @@
 # PostgreSQL data
-postgres/data/
+source/postgres/data/
 
 # Environment files
 .env
 .env.*
+!.env.example
+
+# Secret files (setup-env.sh)
+secrets/
 
 # OS
 .DS_Store
@@ -13,5 +17,9 @@ Thumbs.db
 .idea/
 .vscode/
 *.iml
+
+# Python bytecode
+__pycache__/
+*.pyc
 
 .tokensave

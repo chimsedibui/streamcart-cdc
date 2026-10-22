@@ -4,37 +4,49 @@
     "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
     "database.hostname": "postgres",
     "database.port": "5432",
-    "database.user": "admin",
-    "database.password": "admin",
+    "_comment_user": "Least-privileged replication user from source/postgres/init.sql (REPLICATION + SELECT); not a superuser",
+    "database.user": "cdc_user",
+    "_comment_password": "Resolved by the Connect worker from the mounted secret file (DirectoryConfigProvider); never stored in the config",
+    "database.password": "${dir:/run/secrets:cdc_db_password}",
     "database.dbname": "enterprise_db",
     "topic.prefix": "cdc",
     "plugin.name": "pgoutput",
     "publication.name": "cdc_publication",
+    "publication.autocreate.mode": "disabled",
     "slot.name": "debezium_slot",
-    "table.include.list": "ecommerce.customers,ecommerce.customer_addresses,ecommerce.brands,ecommerce.categories,ecommerce.products,ecommerce.product_categories,ecommerce.suppliers,ecommerce.supplier_products,ecommerce.warehouses,ecommerce.inventory,ecommerce.inventory_movements,ecommerce.purchase_orders,ecommerce.purchase_order_items,ecommerce.carts,ecommerce.cart_items,ecommerce.promotions,ecommerce.orders,ecommerce.order_items,ecommerce.payments,ecommerce.shipments,ecommerce.returns,ecommerce.return_items,ecommerce.debezium_signals",
+    "_comment_include": "Same filter as the Simulated project: every ecommerce table except pipeline/infra tables",
+    "table.include.list": "ecommerce\\.(?!cdc_heartbeat$|cdc_metrics$|audit_logs$|idempotency_keys$|sim_clock$|wallet_pending$|voucher_quota_slots$).+",
 
-    "replica.identity.autoset.values": "ecommerce.*:FULL",
+    "_comment_identity": "REPLICA IDENTITY is set in source/postgres/init.sql by the table owner: FULL for state tables, DEFAULT for append-only ones",
 
+    "_comment_converters": "Plain JSON without embedded schemas: the Spark landing job stores the envelope as a string and Flink reads it with format debezium-json. The Simulated project uses the Schema Registry instead (5-byte header), which neither consumer here expects",
     "key.converter": "org.apache.kafka.connect.json.JsonConverter",
-    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
     "key.converter.schemas.enable": "false",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
     "value.converter.schemas.enable": "false",
 
-    "column.mask.with.length.chars": "ecommerce.customers.phone:12",
+    "_comment_pii": "Personal data is hashed (salted SHA-256) before it leaves PostgreSQL. The salt is read from secrets/pii_salt and substituted for ${PII_SALT} by debezium/register.sh",
+    "column.mask.hash.v2.SHA-256.with.salt.${PII_SALT}": "ecommerce.customers.full_name,ecommerce.customers.email,ecommerce.customers.phone,ecommerce.customer_addresses.recipient_name,ecommerce.customer_addresses.phone,ecommerce.customer_addresses.street,ecommerce.orders.ship_to_name,ecommerce.orders.ship_to_address,ecommerce.sellers.email",
 
-    "_comment_unwrap": "DISABLED: ExtractNewRecordState strips before/after values",
-    "_transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
-    "_transforms.unwrap.drop.tombstones": "false",
-    "_transforms.unwrap.delete.handling.mode": "rewrite",
-    "_transforms.unwrap.add.fields": "op,table,source.ts_ms",
+    "_comment_outbox": "Outbox rows become domain events on events.<aggregatetype>; other tables pass through untouched",
+    "transforms": "outbox",
+    "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
+    "transforms.outbox.predicate": "isOutbox",
+    "transforms.outbox.route.topic.replacement": "events.${routedByValue}",
+    "transforms.outbox.table.expand.json.payload": "false",
+    "transforms.outbox.table.fields.additional.placement": "id:envelope:eventId,type:envelope:eventType,aggregatetype:envelope:aggregateType,aggregateid:envelope:aggregateId,created_at:envelope:occurredAt",
+    "predicates": "isOutbox",
+    "predicates.isOutbox.type": "org.apache.kafka.connect.transforms.predicates.TopicNameMatches",
+    "predicates.isOutbox.pattern": "cdc\\.ecommerce\\.outbox_events",
 
     "snapshot.mode": "initial",
     "snapshot.locking.mode": "shared",
     "snapshot.fetch.size": "10000",
     "snapshot.max.threads": "1",
 
-    "tombstones.on.delete": "true",
-    "decimal.handling.mode": "double",
+    "_comment_tombstones": "No tombstones: nothing is log-compacted, and deletes already carry the full old row in before",
+    "tombstones.on.delete": "false",
+    "decimal.handling.mode": "string",
     "time.precision.mode": "connect",
 
     "signal.enabled.channels": "source",
@@ -42,15 +54,22 @@
 
     "heartbeat.interval.ms": "10000",
     "heartbeat.action.query": "INSERT INTO ecommerce.cdc_heartbeat (id,ts) VALUES (1,NOW()) ON CONFLICT (id) DO UPDATE SET ts = NOW()",
-    
-    "errors.tolerance": "all",
+
+    "_comment_errors": "Fail fast: a change that cannot be converted stops the task instead of being dropped",
+    "errors.tolerance": "none",
     "errors.log.enable": "true",
     "errors.log.include.messages": "true",
 
     "provide.transaction.metadata": "true",
 
-    "producer.override.compression.type": "gzip",
+    "max.batch.size": "4096",
+    "max.queue.size": "16384",
+    "max.queue.size.in.bytes": "67108864",
+    "poll.interval.ms": "200",
+    "producer.override.acks": "all",
+    "producer.override.enable.idempotence": "true",
+    "producer.override.compression.type": "lz4",
     "producer.override.linger.ms": "10",
-    "producer.override.batch.size": "32000"
+    "producer.override.batch.size": "131072"
   }
 }

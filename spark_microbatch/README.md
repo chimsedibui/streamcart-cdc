@@ -1,9 +1,9 @@
-# Spark landing layer (Kafka → Iceberg on MinIO)
+# Spark landing layer (Kafka → Iceberg on SeaweedFS)
 
 `landing_cdc_stream.py` is a Structured Streaming micro-batch job that reads
 every Debezium topic matching `cdc.ecommerce.*` and appends the **raw**
 records (Debezium envelope kept as JSON strings) to the Iceberg table
-`lakehouse.landing.cdc_events`, stored in the MinIO bucket `s3://warehouse/`
+`lakehouse.landing.cdc_events`, stored in the SeaweedFS S3 bucket `s3://warehouse/`
 via the Iceberg REST catalog.
 
 ## Landing table
@@ -23,11 +23,11 @@ every 30 s (`TRIGGER_INTERVAL`), capped at 50 000 records per trigger.
 ## Run
 
 ```bash
-docker compose up -d spark-landing   # pulls minio, minio-init, iceberg-rest with it
+docker compose up -d spark-landing   # pulls seaweedfs and iceberg-rest with it
 docker logs -f cdc-spark-landing     # first start downloads Iceberg/Kafka jars from Maven
 ```
 
-Endpoints: MinIO console <http://localhost:9001> (admin/admin123),
+Endpoints: SeaweedFS S3 API <http://localhost:8333> (access key admin / secret admin123),
 Iceberg REST catalog <http://localhost:8181>.
 
 ## Inspect the landed data
@@ -41,7 +41,7 @@ docker exec -it cdc-spark-landing /opt/spark/bin/spark-sql \
   --conf spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181 \
   --conf spark.sql.catalog.lakehouse.warehouse=s3://warehouse/ \
   --conf spark.sql.catalog.lakehouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO \
-  --conf spark.sql.catalog.lakehouse.s3.endpoint=http://minio:9000 \
+  --conf spark.sql.catalog.lakehouse.s3.endpoint=http://seaweedfs:8333 \
   --conf spark.sql.catalog.lakehouse.s3.path-style-access=true \
   -e "SELECT source_table, count(*) FROM lakehouse.landing.cdc_events GROUP BY source_table"
 ```
@@ -58,7 +58,7 @@ docker exec -it cdc-spark-landing /opt/spark/bin/spark-sql \
 | `ICEBERG_CATALOG` | `lakehouse` |
 | `ICEBERG_REST_URI` | `http://iceberg-rest:8181` |
 | `ICEBERG_WAREHOUSE` | `s3://warehouse/` |
-| `S3_ENDPOINT` | `http://minio:9000` |
+| `S3_ENDPOINT` | `http://seaweedfs:8333` |
 | `CHECKPOINT_DIR` | `/opt/spark/work-dir/checkpoints/landing_cdc_events` |
 
 Checkpoints live in the `spark_checkpoints` volume, so restarts resume from
