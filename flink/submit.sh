@@ -11,4 +11,7 @@ if curl -sf "$REST/jobs/overview" | grep -q "\"name\":\"$NAME\",\"state\":\"\(RU
   echo "$NAME is already running"
   exit 0
 fi
-exec /opt/flink/bin/sql-client.sh -Drest.address="${FLINK_JOBMANAGER:-flink-jobmanager}" -f /opt/flink/sql/silver.sql
+# the catalog credential goes into a private copy of the job file, never into the image
+umask 077
+sed "s|\${POLARIS_CREDENTIAL}|$(cat /run/secrets/polaris/flink)|" /opt/flink/sql/silver.sql > /tmp/silver.sql
+exec /opt/flink/bin/sql-client.sh -Drest.address="${FLINK_JOBMANAGER:-flink-jobmanager}" -f /tmp/silver.sql

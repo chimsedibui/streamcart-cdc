@@ -87,11 +87,14 @@ SET 'execution.checkpointing.interval' = '30s';
 -- the Iceberg upsert writer already keeps the last row per key
 SET 'table.exec.sink.upsert-materialize' = 'NONE';
 
+-- credential: the Polaris principal `flink`, filled in from its secret file by submit.sh
 CREATE CATALOG lakehouse WITH (
   'type' = 'iceberg',
   'catalog-type' = 'rest',
-  'uri' = 'http://iceberg-rest:8181',
-  'warehouse' = 's3://warehouse/',
+  'uri' = 'http://polaris:8181/api/catalog',
+  'warehouse' = 'lakehouse',
+  'credential' = '${{POLARIS_CREDENTIAL}}',
+  'scope' = 'PRINCIPAL_ROLE:ALL',
   'io-impl' = 'org.apache.iceberg.aws.s3.S3FileIO',
   's3.endpoint' = 'http://seaweedfs:8333',
   's3.path-style-access' = 'true'

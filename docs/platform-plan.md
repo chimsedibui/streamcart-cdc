@@ -11,7 +11,7 @@ to managed services later.
 |---|---|---|
 | Source | `source/` vendored from the Simulated project (`scripts/sync-source.sh`) | Marketplace OLTP, Source API (only writer), identity (EdDSA JWT), simulator. Same source as the ClickHouse project |
 | Ingestion | Debezium → Kafka (`cdc.ecommerce.<table>`, `events.<aggregate>`) | Plain JSON envelopes, PII hashed at the connector, outbox → domain events |
-| Landing | Spark Structured Streaming → `lakehouse.landing.cdc_events` (Iceberg v2 on MinIO, REST catalog) | Raw envelope per row, partitioned by table and day |
+| Landing | Spark Structured Streaming → `lakehouse.landing.cdc_events` (Iceberg v2 on SeaweedFS S3, Polaris catalog) | Raw envelope per row, partitioned by table and day |
 | Serving | Streamlit live counter | No SQL access to the lake yet |
 | Validation | none here; upstream has a schema contract check and `quality/check_data.py` | Both target ClickHouse; logic is reusable |
 | Orchestration, lineage, catalog UI | none | |
@@ -23,7 +23,7 @@ We copy the *capabilities*, not the product. Each Databricks concept maps to one
 | Databricks | Here | Why this one |
 |---|---|---|
 | Delta Lake | **Apache Iceberg v2** (already in place) | Engine-neutral: Spark, Flink and Trino read and write the same tables; native branches and tags |
-| Unity Catalog | **Apache Polaris** (Iceberg REST catalog) replacing `tabulario/iceberg-rest` | Same REST protocol we use now, plus namespaces, roles, credential vending |
+| Unity Catalog | **Apache Polaris** (Iceberg REST catalog, in place) | Same REST protocol, plus persistence, principals and roles; credential vending once storage has STS |
 | Delta Live Tables (declarative pipelines + expectations) | **Pipeline specs (YAML) in `pipelines/`**, compiled by a small `platform` CLI into Flink SQL / Spark jobs and Dagster assets | Keeps pipelines as reviewable code; one spec drives build, tests and docs |
 | Workflows / Jobs | **Dagster** | Asset-based (tables are first-class), built-in asset checks = expectations, partitions and backfills, good UI |
 | Streaming | **Flink** (silver upserts from Kafka) | Low-latency CDC upserts into Iceberg; Spark stays for batch, backfills and table maintenance |
@@ -37,8 +37,7 @@ We copy the *capabilities*, not the product. Each Databricks concept maps to one
 ```text
  source/ (shared with the Simulated project)
  Source API ─► PostgreSQL ─► Debezium ─► Kafka ──┬─► Spark landing ─► landing.cdc_events      (raw, replayable)
-                                                 └─► Flink SQL ─────► bronze.<table>           (parsed, typed)
-                                                                    └► silver.<table>           (current state, upsert)
+                                                 └─► Flink SQL ─────► silver.<table>           (current state, upsert)
                                        Dagster assets (Spark/Trino) ─► gold.<mart>              (business metrics)
 
  Every write goes to an Iceberg *audit branch* first ─► checks pass ─► fast-forward to main (write-audit-publish)
@@ -62,7 +61,7 @@ One YAML file per dataset is the single source of truth. Example `pipelines/silv
 ```yaml
 dataset: silver.orders
 owner: data-eng
-from: bronze.orders
+from: kafka:cdc.ecommerce.orders
 mode: streaming            # streaming → Flink upsert, batch → Spark/Trino job under Dagster
 primary_key: [id]
 order_by: source_lsn       # last change per key wins, replay-safe
@@ -128,7 +127,7 @@ Validation happens at four gates, cheapest first:
 | Phase | Scope | Exit criteria |
 |---|---|---|
 | **0. Shared source** (done in this branch) | Vendor `source/`, rewire Debezium, sync script | Simulator traffic lands in `landing.cdc_events` |
-| **1. Silver on Flink** (silver done: 31/31 tables reconcile) | Flink cluster in compose, generated Flink SQL `debezium-json` Kafka source → Iceberg upsert for the 31 business tables, `quality/reconcile.py`; Polaris replaces the REST catalog | `silver.*` row counts equal PostgreSQL within 1 min of the simulator stopping |
+| **1. Silver on Flink** (done: 31/31 tables reconcile, Polaris in place) | Flink cluster in compose, generated Flink SQL `debezium-json` Kafka source → Iceberg upsert for the 31 business tables, `quality/reconcile.py`; Polaris replaces the REST catalog | `silver.*` row counts equal PostgreSQL within 1 min of the simulator stopping |
 | **2. SQL access** | Trino + Superset; first gold marts (daily GMV, orders by status, seller SLA) as Dagster assets | A gold metric matches the same SQL run on PostgreSQL |
 | **3. Validation framework** | Pipeline specs + `platform validate/test`, contract check in GitHub Actions, WAP + asset checks, quarantine tables | A seeded bad change (e.g. total mismatch) is blocked from `main` and shows up in Dagster |
 | **4. Management** | Dagster as the single UI, OpenLineage/Marquez, maintenance schedules, Grafana alerts | Any table's owner, lineage, freshness and last check are visible in one place |
@@ -139,7 +138,8 @@ Validation happens at four gates, cheapest first:
 
 1. **Flink or Spark for silver?** Recommendation: Flink for the streaming upserts (lower latency, native CDC
    changelog), Spark for backfills and maintenance. Both write the same Iceberg tables.
-2. **Polaris now or later?** Recommendation: in Phase 1: switching catalogs after tables exist means a migration.
+2. ~~Polaris now or later?~~ Done in Phase 1. The previous `tabulario/iceberg-rest` kept its catalog in an
+   in-memory SQLite database, so every restart lost all table definitions.
 3. **Dagster or Airflow?** Recommendation: Dagster: asset checks and partitions are exactly the
    "validate and manage" features we need; Airflow would need them built on top.
 4. **Contract ownership**: schema changes are made only in the Simulated project and pulled with

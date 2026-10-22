@@ -20,8 +20,10 @@ MAX_OFFSETS_PER_TRIGGER = os.getenv("MAX_OFFSETS_PER_TRIGGER", "50000")
 TRIGGER_INTERVAL = os.getenv("TRIGGER_INTERVAL", "30 seconds")
 
 CATALOG = os.getenv("ICEBERG_CATALOG", "lakehouse")
-ICEBERG_REST_URI = os.getenv("ICEBERG_REST_URI", "http://iceberg-rest:8181")
-ICEBERG_WAREHOUSE = os.getenv("ICEBERG_WAREHOUSE", "s3://warehouse/")
+ICEBERG_REST_URI = os.getenv("ICEBERG_REST_URI", "http://polaris:8181/api/catalog")
+ICEBERG_WAREHOUSE = os.getenv("ICEBERG_WAREHOUSE", "lakehouse")   # the Polaris catalog name
+# Polaris principal as clientId:clientSecret (written by polaris-init)
+ICEBERG_CREDENTIAL_FILE = os.getenv("ICEBERG_CREDENTIAL_FILE", "/run/secrets/polaris/spark")
 S3_ENDPOINT = os.getenv("S3_ENDPOINT", "http://seaweedfs:8333")
 
 LANDING_TABLE = f"{CATALOG}.landing.cdc_events"
@@ -41,6 +43,8 @@ def build_spark() -> SparkSession:
         .config(f"spark.sql.catalog.{CATALOG}.type", "rest")
         .config(f"spark.sql.catalog.{CATALOG}.uri", ICEBERG_REST_URI)
         .config(f"spark.sql.catalog.{CATALOG}.warehouse", ICEBERG_WAREHOUSE)
+        .config(f"spark.sql.catalog.{CATALOG}.credential", open(ICEBERG_CREDENTIAL_FILE).read().strip())
+        .config(f"spark.sql.catalog.{CATALOG}.scope", "PRINCIPAL_ROLE:ALL")
         .config(
             f"spark.sql.catalog.{CATALOG}.io-impl",
             "org.apache.iceberg.aws.s3.S3FileIO",

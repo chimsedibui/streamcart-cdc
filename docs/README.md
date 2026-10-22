@@ -15,7 +15,7 @@ projects differ only in what sits behind Kafka:
  simulator ─► identity (JWT) ─► Source API ─► PostgreSQL ─► Debezium ─► Kafka ─┬► Spark landing ─► landing.cdc_events  (raw, replayable)
  (buyers, sellers,              (only writer,  (enterprise_db,  (pgoutput,   topics ├► Flink upsert ──► silver.<table>      (current state, 31 tables)
   carriers, gateways)            outbox,        logical WAL)     PII hashed,        └► Streamlit dashboard
-                                 idempotency)                    outbox)                    Iceberg v2 on S3 (SeaweedFS)
+                                 idempotency)                    outbox)                    Iceberg v2 on S3 (SeaweedFS), catalog: Polaris
 ```
 
 Where this is going: [platform plan](platform-plan.md) (a Databricks-style build / validate / manage platform).
@@ -55,7 +55,8 @@ Business and API documentation (Vietnamese, from upstream): [docs/source/](sourc
 | `debezium` | `8083` | Kafka Connect + Debezium 2.7, config in `debezium/postgres-connector.json` |
 | `kafka-ui` | `8080` | Topics, messages, connector |
 | `seaweedfs` | `8333` | S3 API for the Iceberg warehouse bucket `warehouse` |
-| `iceberg-rest` | `8181` | Iceberg REST catalog |
+| `polaris` | `8181` | Apache Polaris: Iceberg REST catalog `lakehouse` (`/api/catalog`) with principals and roles; state in `polaris-db` |
+| `polaris-bootstrap`, `polaris-init` | | One-shots: realm and root principal; catalog, roles and the `spark` / `flink` (write) and `analyst` (read-only) principals, whose credentials go to `secrets/polaris/` |
 | `spark-landing` | | Structured Streaming: `cdc.ecommerce.*` → `lakehouse.landing.cdc_events` ([details](../spark_microbatch/README.md)) |
 | `flink-jobmanager`, `flink-taskmanager` | `8082` (Flink UI) | Flink 1.20 session cluster with the Kafka and Iceberg connectors |
 | `flink-silver` | | One-shot: submits `flink/sql/silver.sql` unless it is already running |

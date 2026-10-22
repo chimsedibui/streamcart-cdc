@@ -25,17 +25,20 @@ if [[ "${1:-}" == "--rotate" ]]; then
   echo "Removed the old secrets; writing new ones"
 fi
 
-mkdir -p secrets/clients secrets/webhooks
-# databases (source/postgres/passwords.sh, identity.sh) and the Debezium PII salt
+mkdir -p secrets/clients secrets/webhooks secrets/polaris
+# databases (source/postgres/passwords.sh, identity.sh), the Debezium PII salt, the Polaris catalog's database and
+# root principal; the spark and flink principals' credentials are written to secrets/polaris/ by polaris-init
 for f in postgres_password cdc_db_password source_api_db_password app_reader_password identity_db_password \
-         monitor_password pii_salt \
+         monitor_password pii_salt polaris_db_password polaris_root_secret \
          password_pepper admin_password clients/sim-orchestrator clients/quality clients/identity \
          webhooks/MOMO webhooks/VNPAY webhooks/NAPAS webhooks/GHN webhooks/GHTK webhooks/SPX webhooks/JT webhooks/VTP; do
   # no trailing newline: Debezium reads the file verbatim
   [[ -s "secrets/$f" ]] || { rand > "secrets/$f"; echo "Wrote secrets/$f"; }
 done
 [[ -f .env ]] || { cp .env.example .env; echo "Wrote .env"; }
+# placeholders, filled by polaris-init: a bind-mounted file that does not exist yet would become a directory
+for p in spark flink analyst; do touch "secrets/polaris/$p"; done
 
 # readable by the container users (the files stay private to this machine: secrets/ is gitignored)
-chmod 755 secrets secrets/clients secrets/webhooks
+chmod 755 secrets secrets/clients secrets/webhooks secrets/polaris
 find secrets -type f -exec chmod 644 {} +

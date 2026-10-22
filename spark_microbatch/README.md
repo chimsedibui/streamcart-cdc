@@ -3,7 +3,7 @@
 `landing_cdc_stream.py` is a Structured Streaming micro-batch job that reads
 every Debezium topic matching `cdc.ecommerce.*` and appends the **raw**
 records (Debezium envelope kept as JSON strings) to the Iceberg table
-`lakehouse.landing.cdc_events`, stored in the SeaweedFS S3 bucket `s3://warehouse/`
+`lakehouse.landing.cdc_events`, stored in the SeaweedFS S3 bucket `s3://warehouse/` and registered in the Polaris catalog `lakehouse`
 via the Iceberg REST catalog.
 
 ## Landing table
@@ -23,28 +23,21 @@ every 30 s (`TRIGGER_INTERVAL`), capped at 50 000 records per trigger.
 ## Run
 
 ```bash
-docker compose up -d spark-landing   # pulls seaweedfs and iceberg-rest with it
+docker compose up -d spark-landing   # pulls seaweedfs and polaris with it
 docker logs -f cdc-spark-landing     # first start downloads Iceberg/Kafka jars from Maven
 ```
 
 Endpoints: SeaweedFS S3 API <http://localhost:8333> (access key admin / secret admin123),
-Iceberg REST catalog <http://localhost:8181>.
+Polaris Iceberg REST catalog <http://localhost:8181/api/catalog>. The job signs in to Polaris as the principal
+`spark` (`secrets/polaris/spark`, written by `polaris-init`).
 
 ## Inspect the landed data
 
 ```bash
-docker exec -it cdc-spark-landing /opt/spark/bin/spark-sql \
-  --conf spark.jars.ivy=/tmp/.ivy2 \
-  --packages org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.9.1,org.apache.iceberg:iceberg-aws-bundle:1.9.1 \
-  --conf spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog \
-  --conf spark.sql.catalog.lakehouse.type=rest \
-  --conf spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181 \
-  --conf spark.sql.catalog.lakehouse.warehouse=s3://warehouse/ \
-  --conf spark.sql.catalog.lakehouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO \
-  --conf spark.sql.catalog.lakehouse.s3.endpoint=http://seaweedfs:8333 \
-  --conf spark.sql.catalog.lakehouse.s3.path-style-access=true \
-  -e "SELECT source_table, count(*) FROM lakehouse.landing.cdc_events GROUP BY source_table"
+lakehouse/spark-sql.sh -e "SELECT source_table, count(*) FROM lakehouse.landing.cdc_events GROUP BY source_table"
 ```
+
+`lakehouse/spark-sql.sh` runs Spark SQL in this container as the read-only Polaris principal `analyst`.
 
 ## Configuration (env vars on the `spark-landing` service)
 
@@ -56,8 +49,9 @@ docker exec -it cdc-spark-landing /opt/spark/bin/spark-sql \
 | `MAX_OFFSETS_PER_TRIGGER` | `50000` |
 | `TRIGGER_INTERVAL` | `30 seconds` |
 | `ICEBERG_CATALOG` | `lakehouse` |
-| `ICEBERG_REST_URI` | `http://iceberg-rest:8181` |
-| `ICEBERG_WAREHOUSE` | `s3://warehouse/` |
+| `ICEBERG_REST_URI` | `http://polaris:8181/api/catalog` |
+| `ICEBERG_WAREHOUSE` | `lakehouse` (Polaris catalog name) |
+| `ICEBERG_CREDENTIAL_FILE` | `/run/secrets/polaris/spark` |
 | `S3_ENDPOINT` | `http://seaweedfs:8333` |
 | `CHECKPOINT_DIR` | `/opt/spark/work-dir/checkpoints/landing_cdc_events` |
 
