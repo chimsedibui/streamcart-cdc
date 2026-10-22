@@ -50,8 +50,8 @@ We copy the *capabilities*, not the product. Each Databricks concept maps to one
 Medallion contract:
 
 - **landing**: exactly what Kafka had, never rewritten. Lets us rebuild any layer without re-snapshotting Postgres.
-- **bronze**: one table per source table; envelope parsed, types from the source schema, `op`, `lsn`, `source_ts`
-  kept. Append-only.
+- **bronze** (deferred): one typed, append-only table per source table. `landing` already keeps every change
+  replayable, so bronze is added only when a consumer needs typed change history.
 - **silver**: current state per primary key (Iceberg MERGE / Flink upsert), deletes applied using `before`.
 - **gold**: marts with documented metric definitions (GMV, AOV, fulfilment SLA, return rate, seller payouts).
 
@@ -128,7 +128,7 @@ Validation happens at four gates, cheapest first:
 | Phase | Scope | Exit criteria |
 |---|---|---|
 | **0. Shared source** (done in this branch) | Vendor `source/`, rewire Debezium, sync script | Simulator traffic lands in `landing.cdc_events` |
-| **1. Bronze + silver on Flink** | Flink cluster in compose, Flink SQL `debezium-json` Kafka source → Iceberg upsert for the 31 business tables; Polaris replaces the REST catalog | `silver.*` row counts equal PostgreSQL within 1 min of the simulator stopping |
+| **1. Silver on Flink** (silver done: 31/31 tables reconcile) | Flink cluster in compose, generated Flink SQL `debezium-json` Kafka source → Iceberg upsert for the 31 business tables, `quality/reconcile.py`; Polaris replaces the REST catalog | `silver.*` row counts equal PostgreSQL within 1 min of the simulator stopping |
 | **2. SQL access** | Trino + Superset; first gold marts (daily GMV, orders by status, seller SLA) as Dagster assets | A gold metric matches the same SQL run on PostgreSQL |
 | **3. Validation framework** | Pipeline specs + `platform validate/test`, contract check in GitHub Actions, WAP + asset checks, quarantine tables | A seeded bad change (e.g. total mismatch) is blocked from `main` and shows up in Dagster |
 | **4. Management** | Dagster as the single UI, OpenLineage/Marquez, maintenance schedules, Grafana alerts | Any table's owner, lineage, freshness and last check are visible in one place |

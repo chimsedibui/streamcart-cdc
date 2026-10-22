@@ -12,10 +12,10 @@ projects differ only in what sits behind Kafka:
 | **StreamCart (this repo)** | Spark micro-batches → Apache Iceberg on S3 (SeaweedFS), Flink next |
 
 ```text
- simulator ─► identity (JWT) ─► Source API ─► PostgreSQL ─► Debezium ─► Kafka ─► Spark landing ─► Iceberg (S3)
- (buyers, sellers,              (only writer,  (enterprise_db,  (pgoutput,   cdc.ecommerce.<table>    landing.cdc_events
-  carriers, gateways)            outbox,        logical WAL)     PII hashed,  events.<aggregate>
-                                 idempotency)                    outbox)      └► Streamlit dashboard
+ simulator ─► identity (JWT) ─► Source API ─► PostgreSQL ─► Debezium ─► Kafka ─┬► Spark landing ─► landing.cdc_events  (raw, replayable)
+ (buyers, sellers,              (only writer,  (enterprise_db,  (pgoutput,   topics ├► Flink upsert ──► silver.<table>      (current state, 31 tables)
+  carriers, gateways)            outbox,        logical WAL)     PII hashed,        └► Streamlit dashboard
+                                 idempotency)                    outbox)                    Iceberg v2 on S3 (SeaweedFS)
 ```
 
 Where this is going: [platform plan](platform-plan.md) (a Databricks-style build / validate / manage platform).
@@ -57,6 +57,8 @@ Business and API documentation (Vietnamese, from upstream): [docs/source/](sourc
 | `seaweedfs` | `8333` | S3 API for the Iceberg warehouse bucket `warehouse` |
 | `iceberg-rest` | `8181` | Iceberg REST catalog |
 | `spark-landing` | | Structured Streaming: `cdc.ecommerce.*` → `lakehouse.landing.cdc_events` ([details](../spark_microbatch/README.md)) |
+| `flink-jobmanager`, `flink-taskmanager` | `8082` (Flink UI) | Flink 1.20 session cluster with the Kafka and Iceberg connectors |
+| `flink-silver` | | One-shot: submits `flink/sql/silver.sql` unless it is already running |
 | `dashboard` | `8501` | Streamlit live counters from Kafka |
 
 Connector, compared with upstream: same capture filter, `cdc_user` with its password from a secret file, salted
@@ -94,7 +96,37 @@ TOKEN=$(curl -s -X POST localhost:8300/v1/auth/token -d grant_type=client_creden
 curl -s "localhost:8100/v1/orders?limit=5" -H "Authorization: Bearer $TOKEN"
 ```
 
-Check what landed in Iceberg: see [spark_microbatch/README.md](../spark_microbatch/README.md#inspect-the-landed-data).
+Query the lakehouse:
+
+```bash
+lakehouse/spark-sql.sh -e "SELECT status, count(*), sum(total) FROM lakehouse.silver.orders GROUP BY status"
+```
+
+## Silver layer (Flink)
+
+`flink/sql/silver.sql` is **generated** by `flink/gen_silver.py` from the live source schema (column types, primary
+keys) and the connector's capture filter: one Flink job reads each `cdc.ecommerce.<table>` topic as a Debezium
+changelog and upserts it by primary key into `lakehouse.silver.<table>` (Iceberg v2, equality deletes), with
+`_source_ts` = commit time in PostgreSQL. Iceberg commits on every 30 s checkpoint.
+
+After `scripts/sync-source.sh` brings a schema change:
+
+```bash
+flink/gen_silver.py --check           # fails when silver.sql no longer matches the source (the contract)
+flink/gen_silver.py && docker compose build flink-jobmanager
+```
+
+A changed job is not hot-swapped: cancel `silver-cdc` in the Flink UI, then `docker compose up -d flink-silver`
+(it resumes from the Kafka offsets of its last checkpoint; new columns need the Iceberg table evolved or dropped).
+
+Check that silver equals the source (`quality/reconcile.py`: rows, Σ version and latest `updated_at` per table):
+
+```bash
+curl -X POST localhost:8200/stop
+curl -X PUT localhost:8200/clock -H 'Content-Type: application/json' -d '{"speed":0.001}'   # scheduled jobs idle too
+quality/reconcile.py --wait 120
+curl -X PUT localhost:8200/clock -H 'Content-Type: application/json' -d '{"speed":240}'
+```
 
 ## Reset
 

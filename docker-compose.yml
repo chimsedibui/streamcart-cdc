@@ -171,7 +171,71 @@ services:
       iceberg-rest:
         condition: service_started
 
+  # Flink session cluster: streaming CDC upserts into lakehouse.silver.* (job: flink/sql/silver.sql)
+  flink-jobmanager:
+    build: ./flink
+    image: streamcart/flink:1.20-iceberg
+    container_name: cdc-flink-jobmanager
+    hostname: flink-jobmanager
+    restart: unless-stopped
+    command: jobmanager
+    ports:
+      - 8082:8081   # Flink UI
+    environment: &flink-env
+      AWS_ACCESS_KEY_ID: admin
+      AWS_SECRET_ACCESS_KEY: admin123
+      AWS_REGION: us-east-1
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        jobmanager.memory.process.size: 1024m
+        taskmanager.memory.process.size: 3072m
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 1
+        state.backend.type: hashmap
+        state.checkpoints.dir: file:///opt/flink/checkpoints
+        restart-strategy.type: exponential-delay
+    volumes:
+      - flink_checkpoints:/opt/flink/checkpoints
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/overview || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      kafka:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+      iceberg-rest:
+        condition: service_started
+
+  flink-taskmanager:
+    image: streamcart/flink:1.20-iceberg
+    container_name: cdc-flink-taskmanager
+    hostname: flink-taskmanager
+    restart: unless-stopped
+    command: taskmanager
+    environment: *flink-env
+    volumes:
+      - flink_checkpoints:/opt/flink/checkpoints
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+
+  # One-shot: submits the silver job when it is not already running
+  flink-silver:
+    image: streamcart/flink:1.20-iceberg
+    container_name: cdc-flink-silver
+    command: /opt/flink/submit.sh
+    environment: *flink-env
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+      flink-taskmanager:
+        condition: service_started
+
 volumes:
   kafka_data:
   seaweedfs_data:
   spark_checkpoints:
+  flink_checkpoints:
