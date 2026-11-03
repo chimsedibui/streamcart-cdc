@@ -258,6 +258,8 @@ services:
         state.backend.type: hashmap
         state.checkpoints.dir: file:///opt/flink/checkpoints
         restart-strategy.type: exponential-delay
+        metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prom.port: 9249
     volumes:
       - flink_checkpoints:/opt/flink/checkpoints
       - ./secrets/polaris/flink:/run/secrets/polaris/flink:ro
@@ -302,9 +304,250 @@ services:
       flink-taskmanager:
         condition: service_started
 
+  # ---------------------------------------------------------------- platform (profiles, see .env.example)
+  # Metadata for the platform services: one database each for Dagster, Marquez and Superset, plus ops.* (check
+  # results and publishes, read by Grafana). platform/db/init.sh runs on the first start.
+  platform-db:
+    image: postgres:15
+    container_name: cdc-platform-db
+    profiles: [platform, bi, lineage]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD_FILE: /run/secrets/platform_db_password
+      POSTGRES_DB: platform
+    volumes:
+      - ./secrets/platform_db_password:/run/secrets/platform_db_password:ro
+      - ./secrets/ops_reader_password:/run/secrets/ops_reader_password:ro
+      - ./platform/db/init.sh:/docker-entrypoint-initdb.d/01-init.sh:ro
+      - platform_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform -d platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # SQL over the lakehouse: catalog `lakehouse` reads as Polaris principal analyst, `lakehouse_rw` (Trino user dagster
+  # only, lakehouse/trino/rules.json) writes as dagster; `memory` holds test fixtures. Heap: 80% of mem_limit.
+  trino:
+    image: trinodb/trino:484
+    container_name: cdc-trino
+    hostname: trino
+    profiles: [platform, bi]
+    restart: unless-stopped
+    mem_limit: 2g
+    ports:
+      - 8090:8080   # Trino UI and client protocol (8080 is Kafka UI)
+    environment:
+      AWS_ACCESS_KEY_ID: admin
+      AWS_SECRET_ACCESS_KEY: admin123
+    entrypoint: ["/bin/bash", "-c", "export POLARIS_ANALYST=$$(cat /run/secrets/polaris/analyst) POLARIS_DAGSTER=$$(cat /run/secrets/polaris/dagster); exec /usr/lib/trino/bin/launcher run --etc-dir /etc/trino"]
+    volumes:
+      - ./lakehouse/trino/config.properties:/etc/trino/config.properties:ro
+      - ./lakehouse/trino/rules.json:/etc/trino/rules.json:ro
+      - ./lakehouse/trino/catalog:/etc/trino/catalog:ro
+      - ./secrets/polaris/analyst:/run/secrets/polaris/analyst:ro
+      - ./secrets/polaris/dagster:/run/secrets/polaris/dagster:ro
+    healthcheck:
+      test: ["CMD", "/usr/lib/trino/bin/health-check"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    depends_on:
+      polaris-init:
+        condition: service_completed_successfully
+
+  # Dagster: the platform's control plane (assets, checks, schedules, runs) at http://localhost:3070. The webserver
+  # serves the UI; the daemon runs schedules, sensors and the run queue. Code and specs are mounted, not baked in.
+  dagster-webserver:
+    build:
+      context: ./orchestration
+      additional_contexts:
+        platform: ./platform
+    image: streamcart/dagster:1.13
+    container_name: cdc-dagster-webserver
+    hostname: dagster-webserver
+    profiles: [platform]
+    restart: unless-stopped
+    command: ["dagster-webserver", "-h", "0.0.0.0", "-p", "3070", "-w", "/opt/dagster/home/workspace.yaml"]
+    ports:
+      - 3070:3070
+    environment: &dagster-env
+      TRINO_URL: http://trino:8080
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      OPENLINEAGE_URL: http://marquez:5000
+    volumes: &dagster-volumes
+      - ./platform:/opt/streamcart/platform:ro
+      - ./pipelines:/opt/streamcart/pipelines:ro
+      - ./orchestration/streamcart_dagster:/opt/streamcart/orchestration/streamcart_dagster:ro
+      - ./secrets/platform_db_password:/run/secrets/platform_db_password:ro
+      - ./secrets/app_reader_password:/run/secrets/app_reader_password:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:3070/server_info')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    depends_on: &dagster-deps
+      platform-db:
+        condition: service_healthy
+      trino:
+        condition: service_healthy
+
+  dagster-daemon:
+    image: streamcart/dagster:1.13
+    container_name: cdc-dagster-daemon
+    profiles: [platform]
+    restart: unless-stopped
+    command: ["dagster-daemon", "run", "-w", "/opt/dagster/home/workspace.yaml"]
+    environment: *dagster-env
+    volumes: *dagster-volumes
+    depends_on:
+      <<: *dagster-deps
+      dagster-webserver:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------- monitoring (profile monitoring)
+  # Replication slot state and lag, as the read-only role monitor_reader (observability/setup-postgres.sql)
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.17.1
+    container_name: cdc-postgres-exporter
+    profiles: [monitoring]
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_URI: postgres:5432/enterprise_db?sslmode=disable
+      DATA_SOURCE_USER: monitor_reader
+      DATA_SOURCE_PASS_FILE: /run/secrets/monitor_password
+    volumes:
+      - ./secrets/monitor_password:/run/secrets/monitor_password:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Topic offsets and consumer group lag (flink-silver)
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.9.0
+    container_name: cdc-kafka-exporter
+    profiles: [monitoring]
+    restart: unless-stopped
+    command: ["--kafka.server=kafka:9092"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v3.4.0
+    container_name: cdc-prometheus
+    profiles: [monitoring]
+    restart: unless-stopped
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=7d"]
+    ports:
+      - 9090:9090
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+  # Dashboards and alert rules (observability/grafana/), at http://localhost:3000 (admin / secrets/grafana_admin_password)
+  grafana:
+    image: grafana/grafana:12.0.0
+    container_name: cdc-grafana
+    profiles: [monitoring]
+    restart: unless-stopped
+    ports:
+      - 3000:3000
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./secrets/grafana_admin_password:/run/secrets/grafana_admin_password:ro
+      - ./secrets/ops_reader_password:/run/secrets/ops_reader_password:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  # ---------------------------------------------------------------- lineage (profile lineage)
+  # OpenLineage backend: Dagster sends gold runs and the streaming graph (platform/streamcart/lineage.py)
+  marquez:
+    image: marquezproject/marquez:0.50.0
+    container_name: cdc-marquez
+    hostname: marquez
+    profiles: [lineage]
+    restart: unless-stopped
+    mem_limit: 768m
+    ports:
+      - 5000:5000   # API (/api/v1/lineage, /api/v1/namespaces)
+    environment:
+      MARQUEZ_CONFIG: /etc/marquez/marquez.yml
+      JAVA_OPTS: -XX:MaxRAMPercentage=70
+    entrypoint: ["/bin/bash", "-c", "export POSTGRES_PASSWORD=$$(cat /run/secrets/platform_db_password); exec /usr/src/app/entrypoint.sh"]
+    volumes:
+      - ./lineage/marquez.yml:/etc/marquez/marquez.yml:ro
+      - ./secrets/platform_db_password:/run/secrets/platform_db_password:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5001/healthcheck || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    depends_on:
+      platform-db:
+        condition: service_healthy
+
+  # Lineage graph UI at http://localhost:3002
+  marquez-web:
+    image: marquezproject/marquez-web:0.50.0
+    container_name: cdc-marquez-web
+    profiles: [lineage]
+    restart: unless-stopped
+    ports:
+      - 3002:3002
+    environment:
+      MARQUEZ_HOST: marquez
+      MARQUEZ_PORT: 5000
+      WEB_PORT: 3002
+      REACT_APP_ADVANCED_SEARCH: "false"
+    depends_on:
+      marquez:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------- BI (profile bi)
+  # Superset over Trino's read-only catalog, at http://localhost:8088 (admin / secrets/superset_admin_password).
+  # bi/bootstrap.py creates the Lakehouse database, the gold datasets and the Marketplace KPIs dashboard.
+  superset:
+    build: ./bi
+    image: streamcart/superset:4.1.2
+    container_name: cdc-superset
+    profiles: [bi]
+    restart: unless-stopped
+    mem_limit: 1g
+    ports:
+      - 8088:8088
+    environment:
+      SERVER_WORKER_AMOUNT: 2
+    volumes:
+      - ./secrets/superset_secret_key:/run/secrets/superset_secret_key:ro
+      - ./secrets/superset_admin_password:/run/secrets/superset_admin_password:ro
+      - ./secrets/platform_db_password:/run/secrets/platform_db_password:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8088/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    depends_on:
+      platform-db:
+        condition: service_healthy
+      trino:
+        condition: service_healthy
+
 volumes:
   kafka_data:
   seaweedfs_data:
   spark_checkpoints:
   flink_checkpoints:
   polaris_db:
+  platform_db:
+  prometheus_data:
+  grafana_data:

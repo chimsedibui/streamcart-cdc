@@ -27,17 +27,25 @@ fi
 
 mkdir -p secrets/clients secrets/webhooks secrets/polaris
 # databases (source/postgres/passwords.sh, identity.sh), the Debezium PII salt, the Polaris catalog's database and
-# root principal; the spark and flink principals' credentials are written to secrets/polaris/ by polaris-init
+# root principal, the platform database (Dagster, Marquez, Superset, ops.*), Superset's session key and the Superset
+# and Grafana admin passwords; the Polaris principals' credentials are written to secrets/polaris/ by polaris-init
 for f in postgres_password cdc_db_password source_api_db_password app_reader_password identity_db_password \
          monitor_password pii_salt polaris_db_password polaris_root_secret \
+         platform_db_password ops_reader_password superset_secret_key superset_admin_password grafana_admin_password \
          password_pepper admin_password clients/sim-orchestrator clients/quality clients/identity \
          webhooks/MOMO webhooks/VNPAY webhooks/NAPAS webhooks/GHN webhooks/GHTK webhooks/SPX webhooks/JT webhooks/VTP; do
   # no trailing newline: Debezium reads the file verbatim
   [[ -s "secrets/$f" ]] || { rand > "secrets/$f"; echo "Wrote secrets/$f"; }
 done
 [[ -f .env ]] || { cp .env.example .env; echo "Wrote .env"; }
+# settings added to .env.example since .env was written (e.g. COMPOSE_PROFILES); existing ones are kept
+while IFS= read -r line; do
+  if [[ "$line" =~ ^([A-Z_]+)= ]] && ! grep -q "^${BASH_REMATCH[1]}=" .env; then
+    echo "$line" >> .env; echo "Added ${BASH_REMATCH[1]} to .env"
+  fi
+done < .env.example
 # placeholders, filled by polaris-init: a bind-mounted file that does not exist yet would become a directory
-for p in spark flink analyst; do touch "secrets/polaris/$p"; done
+for p in spark flink dagster analyst; do touch "secrets/polaris/$p"; done
 
 # readable by the container users (the files stay private to this machine: secrets/ is gitignored)
 chmod 755 secrets secrets/clients secrets/webhooks secrets/polaris

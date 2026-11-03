@@ -1,0 +1,4 @@
+load_from:
+  - python_module:
+      module_name: streamcart_dagster.definitions
+      location_name: streamcart

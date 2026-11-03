@@ -1,0 +1,29 @@
+# Marquez (OpenLineage backend) for the platform: state in platform-db (database marquez), search off (no OpenSearch).
+# The password is POSTGRES_PASSWORD, exported from secrets/platform_db_password by the compose entrypoint.
+server:
+  applicationConnectors:
+    - type: http
+      port: 5000
+      httpCompliance: RFC7230_LEGACY
+  adminConnectors:
+    - type: http
+      port: 5001
+
+db:
+  driverClass: org.postgresql.Driver
+  url: jdbc:postgresql://platform-db:5432/marquez
+  user: platform
+  password: ${POSTGRES_PASSWORD}
+
+migrateOnStartup: true
+
+graphql:
+  enabled: true
+
+search:
+  enabled: false
+
+logging:
+  level: INFO
+  appenders:
+    - type: console

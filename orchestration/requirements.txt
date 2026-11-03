@@ -1,0 +1,6 @@
+-r /tmp/platform-requirements.txt
+dagster==1.13.26
+dagster-webserver==1.13.26
+dagster-postgres==0.29.26
+# SQLAlchemy 2.1 makes psycopg 3 the default PostgreSQL driver, which rejects the bound NOTIFY dagster-postgres sends
+SQLAlchemy==2.0.55

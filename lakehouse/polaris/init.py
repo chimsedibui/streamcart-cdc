@@ -17,6 +17,8 @@ from pathlib import Path
 POLARIS = os.getenv("POLARIS_URL", "http://polaris:8181")
 CATALOG = "lakehouse"
 WAREHOUSE = "s3://warehouse/"
+# DROP TABLE deletes the files too: the platform drops its audit tables after every publish (Trino asks for a purge)
+PROPERTIES = {"default-base-location": WAREHOUSE, "polaris.config.drop-with-purge.enabled": "true"}
 OUT = Path("/secrets/polaris")
 ROOT_SECRET = Path("/run/secrets/polaris_root_secret").read_text().strip()
 
@@ -24,10 +26,11 @@ ROOT_SECRET = Path("/run/secrets/polaris_root_secret").read_text().strip()
 ROLES = {
     "writer": ["CATALOG_MANAGE_CONTENT"],
     "reader": ["CATALOG_READ_PROPERTIES", "NAMESPACE_LIST", "NAMESPACE_READ_PROPERTIES", "TABLE_LIST",
-               "TABLE_READ_PROPERTIES", "TABLE_READ_DATA"],
+               "TABLE_READ_PROPERTIES", "TABLE_READ_DATA", "VIEW_LIST", "VIEW_READ_PROPERTIES"],
 }
-# principal -> catalog role: the engines write (landing, silver); analysts and BI only read
-PRINCIPALS = {"spark": "writer", "flink": "writer", "analyst": "reader"}
+# principal -> catalog role: the engines write (landing, silver), Dagster writes through Trino (gold, audit branches,
+# quarantine, maintenance); analysts and BI only read
+PRINCIPALS = {"spark": "writer", "flink": "writer", "dagster": "writer", "analyst": "reader"}
 
 
 def call(method: str, path: str, body=None, token=None, form=None, ok=(200, 201, 204)):
@@ -63,11 +66,16 @@ def main():
     m = "/api/management/v1"
     status, _ = call("POST", f"{m}/catalogs", token=t, body={"catalog": {
         "type": "INTERNAL", "name": CATALOG,
-        "properties": {"default-base-location": WAREHOUSE},
+        "properties": PROPERTIES,
         "storageConfigInfo": {"storageType": "S3", "allowedLocations": [WAREHOUSE],
                               "endpoint": os.getenv("S3_ENDPOINT", "http://seaweedfs:8333"),
                               "pathStyleAccess": True, "stsUnavailable": True}}})
     print(f"catalog {CATALOG}: {'created' if status == 201 else 'exists'}")
+    _, current = call("GET", f"{m}/catalogs/{CATALOG}", token=t)
+    if any(current["properties"].get(k) != v for k, v in PROPERTIES.items()):    # created by an older init.py
+        call("PUT", f"{m}/catalogs/{CATALOG}", token=t, body={
+            "currentEntityVersion": current["entityVersion"], "properties": {**current["properties"], **PROPERTIES}})
+        print(f"catalog {CATALOG}: properties updated")
 
     for role, privileges in ROLES.items():
         call("POST", f"{m}/catalogs/{CATALOG}/catalog-roles", token=t, body={"catalogRole": {"name": role}})

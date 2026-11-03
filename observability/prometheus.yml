@@ -1,0 +1,14 @@
+# Pipeline health: the CDC slot (postgres-exporter), consumer lag (kafka-exporter) and the Flink cluster.
+# Alert rules live in Grafana (grafana/provisioning/alerting/), next to the ones on Dagster's check results.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+scrape_configs:
+  - job_name: postgres
+    static_configs: [{targets: ["postgres-exporter:9187"]}]
+  - job_name: kafka
+    static_configs: [{targets: ["kafka-exporter:9308"]}]
+  - job_name: flink
+    static_configs: [{targets: ["flink-jobmanager:9249", "flink-taskmanager:9249"]}]
+  - job_name: prometheus
+    static_configs: [{targets: ["localhost:9090"]}]

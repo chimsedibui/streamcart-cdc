@@ -1,0 +1,329 @@
+# Grafana-managed alert rules: the pipeline (Prometheus) and the data (Dagster's results in ops.*).
+# No contact point is provisioned: alerts show under Alerting; add one (Slack, email) in the UI or here.
+apiVersion: 1
+groups:
+- orgId: 1
+  name: pipeline
+  folder: StreamCart
+  interval: 1m
+  rules:
+  - uid: cdc-slot-inactive
+    title: Debezium is not reading the replication slot
+    condition: C
+    for: 2m
+    noDataState: Alerting
+    execErrState: Error
+    labels:
+      severity: critical
+    annotations:
+      summary: 'debezium_slot has no active consumer: the connector is down or failed. Check http://localhost:8083/connectors/postgres-connector/status.'
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: max(pg_replication_slot_slot_is_active{slot_name="debezium_slot"})
+        instant: true
+        range: false
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        conditions:
+        - evaluator:
+            type: lt
+            params:
+            - 1
+  - uid: cdc-slot-lag
+    title: CDC replication slot lag above 512 MB
+    condition: C
+    for: 5m
+    noDataState: Alerting
+    execErrState: Error
+    labels:
+      severity: critical
+    annotations:
+      summary: PostgreSQL keeps WAL for Debezium; at max_slot_wal_keep_size (8 GB) the slot is invalidated and needs a new snapshot.
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: max(pg_replication_slot_slot_current_wal_lsn{slot_name="debezium_slot"} - pg_replication_slot_slot_confirmed_flush_lsn{slot_name="debezium_slot"})
+        instant: true
+        range: false
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 536870912
+  - uid: silver-consumer-lag
+    title: Flink silver job is falling behind Kafka
+    condition: C
+    for: 5m
+    noDataState: Alerting
+    execErrState: Error
+    labels:
+      severity: critical
+    annotations:
+      summary: 'More than 50 000 changes are waiting in cdc.ecommerce.* for the silver-cdc job (Flink UI: http://localhost:8082).'
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: sum(kafka_consumergroup_lag{consumergroup="flink-silver"})
+        instant: true
+        range: false
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 50000
+  - uid: flink-silver-down
+    title: Flink silver job is not running
+    condition: C
+    for: 2m
+    noDataState: Alerting
+    execErrState: Error
+    labels:
+      severity: critical
+    annotations:
+      summary: 'No running job on the Flink cluster: silver stopped updating. `docker compose up -d flink-silver` resubmits it.'
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: max(flink_jobmanager_numRunningJobs)
+        instant: true
+        range: false
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        conditions:
+        - evaluator:
+            type: lt
+            params:
+            - 1
+  - uid: flink-checkpoints-failing
+    title: Flink checkpoints are failing
+    condition: C
+    for: 0s
+    noDataState: OK
+    execErrState: Error
+    labels:
+      severity: warning
+    annotations:
+      summary: 'Iceberg commits happen on checkpoints: while they fail, silver does not change.'
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: sum(increase(flink_jobmanager_job_numberOfFailedCheckpoints[10m]))
+        instant: true
+        range: false
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+  - uid: freshness-breach
+    title: A dataset is past its freshness error threshold
+    condition: C
+    for: 0s
+    noDataState: OK
+    execErrState: Error
+    labels:
+      severity: critical
+    annotations:
+      summary: See the Platform health dashboard and the freshness checks in Dagster (http://localhost:3070).
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: ops
+      model:
+        refId: A
+        rawSql: SELECT count(*) AS breaches FROM ops.check_latest WHERE check_name = 'freshness' AND NOT passed AND severity = 'ERROR' AND evaluated_at > now() - interval '15 minutes'
+        format: table
+        rawQuery: true
+        editorMode: code
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+  - uid: publish-blocked
+    title: A gold publish was blocked or failed
+    condition: C
+    for: 0s
+    noDataState: OK
+    execErrState: Error
+    labels:
+      severity: warning
+    annotations:
+      summary: A blocking check stopped a write-audit-publish; the audited rows stay in lakehouse.audit.* for inspection.
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: ops
+      model:
+        refId: A
+        rawSql: SELECT count(*) AS runs FROM ops.publishes WHERE outcome <> 'published' AND finished_at > now() - interval '30 minutes'
+        format: table
+        rawQuery: true
+        editorMode: code
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+  - uid: checks-failing
+    title: Data checks are failing
+    condition: C
+    for: 0s
+    noDataState: OK
+    execErrState: Error
+    labels:
+      severity: warning
+    annotations:
+      summary: Expectations failing on silver or gold (quarantined rows are in lakehouse.quarantine.*).
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: ops
+      model:
+        refId: A
+        rawSql: SELECT count(*) AS failing FROM ops.check_latest WHERE NOT passed AND check_name NOT IN ('freshness', 'reconcile_with_source') AND evaluated_at > now() - interval '30 minutes'
+        format: table
+        rawQuery: true
+        editorMode: code
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+  - uid: checks-not-running
+    title: Dagster checks have stopped running
+    condition: C
+    for: 0s
+    noDataState: OK
+    execErrState: Error
+    labels:
+      severity: critical
+    annotations:
+      summary: 'No check result in 20 minutes: is dagster-daemon running?'
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: ops
+      model:
+        refId: A
+        rawSql: SELECT coalesce(extract(epoch FROM now() - max(evaluated_at)), 1e9) AS seconds FROM ops.check_results
+        format: table
+        rawQuery: true
+        editorMode: code
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 1200

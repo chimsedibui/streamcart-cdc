@@ -1,0 +1,21 @@
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+  # Dagster's check results and publishes (platform/db/init.sh), read-only
+  - name: Platform ops
+    uid: ops
+    type: grafana-postgresql-datasource
+    access: proxy
+    url: platform-db:5432
+    user: ops_reader
+    jsonData:
+      database: platform
+      sslmode: disable
+      postgresVersion: 1500
+    secureJsonData:
+      password: $__file{/run/secrets/ops_reader_password}

@@ -1,0 +1,650 @@
+{
+ "uid": "streamcart-platform",
+ "title": "Platform health",
+ "tags": [
+  "streamcart"
+ ],
+ "timezone": "browser",
+ "refresh": "30s",
+ "time": {
+  "from": "now-3h",
+  "to": "now"
+ },
+ "schemaVersion": 39,
+ "panels": [
+  {
+   "id": 1,
+   "type": "stat",
+   "title": "Debezium reading the slot",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 4,
+    "h": 4
+   },
+   "targets": [
+    {
+     "expr": "max(pg_replication_slot_slot_is_active{slot_name=\"debezium_slot\"})",
+     "legendFormat": "",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     },
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "0": {
+         "text": "NO"
+        },
+        "1": {
+         "text": "YES"
+        }
+       }
+      }
+     ],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "colorMode": "background",
+    "graphMode": "none",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   }
+  },
+  {
+   "id": 2,
+   "type": "stat",
+   "title": "Slot lag",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 4,
+    "y": 0,
+    "w": 4,
+    "h": 4
+   },
+   "targets": [
+    {
+     "expr": "max(pg_replication_slot_slot_current_wal_lsn{slot_name=\"debezium_slot\"} - pg_replication_slot_slot_confirmed_flush_lsn{slot_name=\"debezium_slot\"})",
+     "legendFormat": "",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 134217728
+       },
+       {
+        "color": "red",
+        "value": 536870912
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "colorMode": "background",
+    "graphMode": "none",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   }
+  },
+  {
+   "id": 3,
+   "type": "stat",
+   "title": "Changes waiting for silver",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 0,
+    "w": 4,
+    "h": 4
+   },
+   "targets": [
+    {
+     "expr": "sum(kafka_consumergroup_lag{consumergroup=\"flink-silver\"})",
+     "legendFormat": "",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 10000
+       },
+       {
+        "color": "red",
+        "value": 50000
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "colorMode": "background",
+    "graphMode": "none",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   }
+  },
+  {
+   "id": 4,
+   "type": "stat",
+   "title": "Flink jobs running",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 0,
+    "w": 4,
+    "h": 4
+   },
+   "targets": [
+    {
+     "expr": "max(flink_jobmanager_numRunningJobs)",
+     "legendFormat": "",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "colorMode": "background",
+    "graphMode": "none",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   }
+  },
+  {
+   "id": 5,
+   "type": "stat",
+   "title": "Failing data checks",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "ops"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 0,
+    "w": 4,
+    "h": 4
+   },
+   "targets": [
+    {
+     "rawSql": "SELECT count(*) AS failing FROM ops.check_latest WHERE NOT passed AND check_name <> 'reconcile_with_source'",
+     "format": "table",
+     "rawQuery": true,
+     "editorMode": "code",
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "ops"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 1
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "colorMode": "background",
+    "graphMode": "none",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   }
+  },
+  {
+   "id": 6,
+   "type": "stat",
+   "title": "Blocked publishes (24 h)",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "ops"
+   },
+   "gridPos": {
+    "x": 20,
+    "y": 0,
+    "w": 4,
+    "h": 4
+   },
+   "targets": [
+    {
+     "rawSql": "SELECT count(*) AS blocked FROM ops.publishes WHERE outcome <> 'published' AND finished_at > now() - interval '24 hours'",
+     "format": "table",
+     "rawQuery": true,
+     "editorMode": "code",
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "ops"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "colorMode": "background",
+    "graphMode": "none",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   }
+  },
+  {
+   "id": 7,
+   "type": "timeseries",
+   "title": "Changes waiting for silver, by topic (top 10)",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 4,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "topk(10, sum by (topic) (kafka_consumergroup_lag{consumergroup=\"flink-silver\"}))",
+     "legendFormat": "{{topic}}",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "fillOpacity": 10,
+      "showPoints": "never"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    }
+   }
+  },
+  {
+   "id": 8,
+   "type": "timeseries",
+   "title": "Replication slot lag",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 4,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "pg_replication_slot_slot_current_wal_lsn - pg_replication_slot_slot_confirmed_flush_lsn",
+     "legendFormat": "{{slot_name}}",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes",
+     "custom": {
+      "fillOpacity": 10,
+      "showPoints": "never"
+     }
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 9,
+   "type": "timeseries",
+   "title": "Freshness: seconds behind (silver: Kafka backlog age, gold: since last publish)",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "ops"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 12,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "rawSql": "SELECT evaluated_at AS time, dataset AS metric, metric AS value FROM ops.check_results WHERE check_name = 'freshness' AND metric IS NOT NULL AND $__timeFilter(evaluated_at) ORDER BY 1",
+     "format": "time_series",
+     "rawQuery": true,
+     "editorMode": "code",
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "ops"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "custom": {
+      "fillOpacity": 0,
+      "showPoints": "always",
+      "spanNulls": true,
+      "pointSize": 4
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    }
+   }
+  },
+  {
+   "id": 10,
+   "type": "timeseries",
+   "title": "Flink checkpoint duration",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 12,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "flink_jobmanager_job_lastCheckpointDuration",
+     "legendFormat": "{{job_name}}",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ms",
+     "custom": {
+      "fillOpacity": 10,
+      "showPoints": "never"
+     }
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 11,
+   "type": "table",
+   "title": "Latest result of every check (failing first)",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "ops"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 20,
+    "w": 14,
+    "h": 12
+   },
+   "targets": [
+    {
+     "rawSql": "SELECT dataset, check_name AS check, CASE WHEN passed THEN 'pass' ELSE lower(severity) END AS result, failing_rows, round(metric::numeric, 0) AS seconds, detail, evaluated_at FROM ops.check_latest ORDER BY passed, severity, dataset, check_name",
+     "format": "table",
+     "rawQuery": true,
+     "editorMode": "code",
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "ops"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "result"
+      },
+      "properties": [
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-background"
+        }
+       },
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "value",
+          "options": {
+           "pass": {
+            "color": "green"
+           },
+           "warn": {
+            "color": "orange"
+           },
+           "error": {
+            "color": "red"
+           }
+          }
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": 12,
+   "type": "table",
+   "title": "Recent gold publishes (write-audit-publish)",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "ops"
+   },
+   "gridPos": {
+    "x": 14,
+    "y": 20,
+    "w": 10,
+    "h": 12
+   },
+   "targets": [
+    {
+     "rawSql": "SELECT finished_at, dataset, outcome, rows_written, rows_quarantined, round(extract(epoch FROM finished_at - started_at)::numeric, 1) AS seconds, detail FROM ops.publishes ORDER BY finished_at DESC LIMIT 50",
+     "format": "table",
+     "rawQuery": true,
+     "editorMode": "code",
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "ops"
+     }
+    }
+   ]
+  }
+ ],
+ "description": "CDC slot, Kafka backlog, Flink, and Dagster's data checks and publishes"
+}

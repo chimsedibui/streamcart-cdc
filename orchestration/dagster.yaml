@@ -1,0 +1,29 @@
+# Runs, events and schedules in platform-db (database dagster); runs are queued and two at most run at once
+storage:
+  postgres:
+    postgres_db:
+      hostname: platform-db
+      port: 5432
+      username: platform
+      password: {env: PLATFORM_DB_PASSWORD}
+      db_name: dagster
+run_coordinator:
+  module: dagster.core.run_coordinator
+  class: QueuedRunCoordinator
+  config:
+    max_concurrent_runs: 2
+run_launcher:
+  module: dagster.core.launcher
+  class: DefaultRunLauncher
+run_retries:
+  enabled: false
+retention:
+  schedule:
+    purge_after_days: 7
+  sensor:
+    purge_after_days:
+      skipped: 1
+      failure: 7
+      success: 1
+telemetry:
+  enabled: false
