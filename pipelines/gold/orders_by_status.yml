@@ -1,0 +1,24 @@
+dataset: gold.orders_by_status
+owner: analytics
+description: >
+  The order book as of the last build: orders and money (Σ total, VND) in each status, and each status's share of
+  all orders.
+mode: batch
+from: [gold.fct_orders]
+sql: orders_by_status.sql
+schedule: "*/10 * * * *"
+primary_key: [status]
+columns:
+  status: varchar
+  orders: bigint
+  total_value: bigint
+  share: double
+expectations:
+  - name: shares_are_rates
+    sql: share > 0 AND share <= 1
+    on_fail: block
+reconcile:
+  sql: orders_by_status.reconcile.sql
+  key: [status]
+  compare: [orders, total_value]
+freshness: {warn_after: 30m, error_after: 2h}

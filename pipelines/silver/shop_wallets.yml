@@ -1,0 +1,14 @@
+# Columns, key and replica identity mirror the source (platform/cli.py validate checks them);
+# owner, description, expectations and freshness are ours to edit.
+dataset: silver.shop_wallets
+owner: finance-data
+description: Current state of ecommerce.shop_wallets, one row per primary key.
+mode: streaming
+from: kafka:cdc.ecommerce.shop_wallets
+primary_key: [shop_id]
+replica_identity: full
+columns:
+  shop_id: uuid
+  balance: bigint
+  updated_at: timestamp with time zone
+freshness: {warn_after: 15m, error_after: 1h}

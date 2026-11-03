@@ -1,0 +1,17 @@
+# Columns, key and replica identity mirror the source (platform/cli.py validate checks them);
+# owner, description, expectations and freshness are ours to edit.
+dataset: silver.price_history
+owner: catalog-data
+description: Current state of ecommerce.price_history, one row per primary key.
+mode: streaming
+from: kafka:cdc.ecommerce.price_history
+primary_key: [id]
+replica_identity: default
+columns:
+  id: bigint
+  sku_id: uuid
+  old_price: bigint
+  new_price: bigint
+  reason: character varying
+  created_at: timestamp with time zone
+freshness: {warn_after: 15m, error_after: 1h}

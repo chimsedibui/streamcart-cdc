@@ -1,0 +1,38 @@
+dataset: gold.daily_gmv
+owner: analytics
+description: >
+  Per business day (orders.created_at in Asia/Ho_Chi_Minh): orders placed, cancelled and valid (not cancelled).
+  GMV = Σ subtotal of valid orders (merchandise at checkout price, before vouchers and shipping); buyer_paid = Σ total
+  of valid orders; discounts = shop + platform vouchers; AOV = buyer_paid / valid_orders. Returned orders still count
+  (NMV would subtract them). Recent days keep changing while their orders are cancelled.
+mode: batch
+from: [gold.fct_orders]
+sql: daily_gmv.sql
+schedule: "*/10 * * * *"
+primary_key: [order_date]
+columns:
+  order_date: date
+  orders: bigint
+  cancelled_orders: bigint
+  valid_orders: bigint
+  buyers: bigint
+  gmv: bigint
+  buyer_paid: bigint
+  discounts: bigint
+  aov: double
+  cancel_rate: double
+expectations:
+  - name: orders_add_up
+    sql: orders = cancelled_orders + valid_orders
+    on_fail: block
+  - name: gmv_not_negative
+    sql: gmv >= 0 AND buyer_paid >= 0
+    on_fail: block
+  - name: cancel_rate_is_a_rate
+    sql: cancel_rate BETWEEN 0 AND 1
+    on_fail: block
+reconcile:
+  sql: daily_gmv.reconcile.sql
+  key: [order_date]
+  compare: [orders, valid_orders, gmv, buyer_paid]
+freshness: {warn_after: 30m, error_after: 2h}

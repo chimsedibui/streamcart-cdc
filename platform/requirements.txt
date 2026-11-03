@@ -1,0 +1,6 @@
+# platform/cli.py and the Dagster code location (orchestration/)
+pyyaml==6.0.3
+sqlglot==30.24.0
+trino==0.340.0
+psycopg[binary]==3.3.6
+kafka-python==3.0.11

@@ -1,0 +1,49 @@
+dataset: gold.fct_orders
+owner: analytics
+description: >
+  One row per order with its shop, the business date it was placed on (Asia/Ho_Chi_Minh, business clock) and every
+  milestone. The base fact the other marts aggregate; money is in VND (integer dong).
+mode: batch
+from: [silver.orders, silver.shops]
+sql: fct_orders.sql
+schedule: "*/10 * * * *"
+primary_key: [order_id]
+columns:
+  order_id: varchar
+  order_number: varchar
+  shop_id: varchar
+  shop_name: varchar
+  shop_tier: varchar
+  customer_id: varchar
+  status: varchar
+  payment_method: varchar
+  subtotal: bigint
+  shop_discount: bigint
+  platform_discount: bigint
+  shipping_fee: bigint
+  shipping_subsidy: bigint
+  total: bigint
+  order_date: date
+  created_at: timestamp(6) with time zone
+  paid_at: timestamp(6) with time zone
+  confirm_by: timestamp(6) with time zone
+  ready_at: timestamp(6) with time zone
+  shipped_at: timestamp(6) with time zone
+  delivered_at: timestamp(6) with time zone
+  completed_at: timestamp(6) with time zone
+  cancelled_at: timestamp(6) with time zone
+  cancelled_by: varchar
+  cancel_reason: varchar
+  is_cancelled: boolean
+expectations:
+  - name: total_matches_parts
+    sql: total = subtotal - shop_discount - platform_discount + shipping_fee - shipping_subsidy
+    on_fail: block
+  - name: known_status
+    sql: status IN ('UNPAID', 'TO_SHIP', 'READY_TO_SHIP', 'SHIPPED', 'DELIVERY_FAILED', 'DELIVERED', 'COMPLETED',
+         'CANCELLED', 'RETURNED_TO_SELLER', 'RETURN_REFUND')
+    on_fail: quarantine
+  - name: shop_known
+    sql: shop_name IS NOT NULL
+    on_fail: warn
+freshness: {warn_after: 30m, error_after: 2h}

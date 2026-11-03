@@ -1,0 +1,35 @@
+dataset: gold.seller_sla_daily
+owner: seller-ops
+description: >
+  Packing SLA per shop and day the clock started (Asia/Ho_Chi_Minh): when the order became TO_SHIP, paid_at for
+  online payments and created_at for COD. An order is due by confirm_by (that moment + 2 business days); it is packed on time (ready_at <= confirm_by), late, cancelled by the source for the
+  breach (seller_sla_breach), cancelled otherwise, or still pending. on_time_rate = on time / (on time + late + SLA
+  cancelled); avg_hours_to_pack is in business hours.
+mode: batch
+from: [gold.fct_orders]
+sql: seller_sla_daily.sql
+schedule: "*/10 * * * *"
+primary_key: [shop_id, sla_date]
+columns:
+  shop_id: varchar
+  shop_name: varchar
+  sla_date: date
+  orders_due: bigint
+  packed_on_time: bigint
+  packed_late: bigint
+  sla_cancelled: bigint
+  other_cancelled: bigint
+  pending: bigint
+  on_time_rate: double
+  avg_hours_to_pack: double
+expectations:
+  - name: outcomes_add_up
+    sql: orders_due = packed_on_time + packed_late + sla_cancelled + other_cancelled + pending
+    on_fail: block
+  - name: on_time_rate_is_a_rate
+    sql: on_time_rate IS NULL OR on_time_rate BETWEEN 0 AND 1
+    on_fail: block
+  - name: packing_takes_time
+    sql: avg_hours_to_pack IS NULL OR avg_hours_to_pack >= 0
+    on_fail: quarantine
+freshness: {warn_after: 30m, error_after: 2h}

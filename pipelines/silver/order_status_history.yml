@@ -1,0 +1,18 @@
+# Columns, key and replica identity mirror the source (platform/cli.py validate checks them);
+# owner, description, expectations and freshness are ours to edit.
+dataset: silver.order_status_history
+owner: commerce-data
+description: Current state of ecommerce.order_status_history, one row per primary key.
+mode: streaming
+from: kafka:cdc.ecommerce.order_status_history
+primary_key: [id]
+replica_identity: default
+columns:
+  id: bigint
+  order_id: uuid
+  from_status: character varying
+  to_status: character varying
+  actor: character varying
+  reason: character varying
+  created_at: timestamp with time zone
+freshness: {warn_after: 5m, error_after: 15m}

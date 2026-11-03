@@ -1,0 +1,25 @@
+# Columns, key and replica identity mirror the source (platform/cli.py validate checks them);
+# owner, description, expectations and freshness are ours to edit.
+dataset: silver.product_skus
+owner: catalog-data
+description: Current state of ecommerce.product_skus, one row per primary key.
+mode: streaming
+from: kafka:cdc.ecommerce.product_skus
+primary_key: [id]
+replica_identity: full
+columns:
+  id: uuid
+  product_id: uuid
+  sku_code: character varying
+  variant_name: character varying
+  list_price: bigint
+  price: bigint
+  weight_g: integer
+  is_active: boolean
+  created_at: timestamp with time zone
+  updated_at: timestamp with time zone
+expectations:
+  - name: price_within_list_price
+    sql: price > 0 AND price <= list_price
+    on_fail: warn
+freshness: {warn_after: 15m, error_after: 1h}

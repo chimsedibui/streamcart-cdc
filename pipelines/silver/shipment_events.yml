@@ -1,0 +1,19 @@
+# Columns, key and replica identity mirror the source (platform/cli.py validate checks them);
+# owner, description, expectations and freshness are ours to edit.
+dataset: silver.shipment_events
+owner: logistics-data
+description: Current state of ecommerce.shipment_events, one row per primary key.
+mode: streaming
+from: kafka:cdc.ecommerce.shipment_events
+primary_key: [id]
+replica_identity: default
+columns:
+  id: bigint
+  shipment_id: uuid
+  carrier_event_id: character varying
+  event_type: character varying
+  event_time: timestamp with time zone
+  location: character varying
+  applied: boolean
+  created_at: timestamp with time zone
+freshness: {warn_after: 5m, error_after: 15m}

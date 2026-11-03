@@ -1,0 +1,30 @@
+# Columns, key and replica identity mirror the source (platform/cli.py validate checks them);
+# owner, description, expectations and freshness are ours to edit.
+dataset: silver.payments
+owner: finance-data
+description: "Payment attempts: one per online attempt of a checkout, one per COD order (collected on delivery)."
+mode: streaming
+from: kafka:cdc.ecommerce.payments
+primary_key: [id]
+replica_identity: full
+columns:
+  id: uuid
+  checkout_id: uuid
+  order_id: uuid
+  method: character varying
+  provider: character varying
+  transaction_ref: character varying
+  amount: bigint
+  status: character varying
+  failure_reason: character varying
+  paid_at: timestamp with time zone
+  created_at: timestamp with time zone
+  updated_at: timestamp with time zone
+expectations:
+  - name: amount_positive
+    sql: amount > 0
+    on_fail: quarantine
+  - name: succeeded_has_paid_at
+    sql: status <> 'SUCCEEDED' OR paid_at IS NOT NULL
+    on_fail: warn
+freshness: {warn_after: 5m, error_after: 15m}

@@ -1,0 +1,30 @@
+# Columns, key and replica identity mirror the source (platform/cli.py validate checks them);
+# owner, description, expectations and freshness are ours to edit.
+dataset: silver.shipments
+owner: logistics-data
+description: "Parcels: FORWARD to the buyer, RETURN back to the seller; carrier status and milestones."
+mode: streaming
+from: kafka:cdc.ecommerce.shipments
+primary_key: [id]
+replica_identity: full
+columns:
+  id: uuid
+  order_id: uuid
+  return_id: uuid
+  direction: character varying
+  carrier: character varying
+  tracking_number: character varying
+  status: character varying
+  from_province: character varying
+  to_province: character varying
+  attempts: integer
+  last_event_time: timestamp with time zone
+  picked_up_at: timestamp with time zone
+  delivered_at: timestamp with time zone
+  created_at: timestamp with time zone
+  updated_at: timestamp with time zone
+expectations:
+  - name: delivered_has_time
+    sql: status <> 'DELIVERED' OR delivered_at IS NOT NULL
+    on_fail: warn
+freshness: {warn_after: 5m, error_after: 15m}

@@ -1,0 +1,14 @@
+dataset: gold.orders_by_status
+cases:
+  - name: each status gets its orders, its money and its share
+    given:
+      gold.fct_orders:
+        - {order_id: o1, status: COMPLETED, total: 100}
+        - {order_id: o2, status: COMPLETED, total: 300}
+        - {order_id: o3, status: CANCELLED, total: 50}
+        - {order_id: o4, status: TO_SHIP, total: 25}
+    expect:
+      rows:
+        - {status: CANCELLED, orders: 1, total_value: 50, share: 0.25}
+        - {status: COMPLETED, orders: 2, total_value: 400, share: 0.5}
+        - {status: TO_SHIP, orders: 1, total_value: 25, share: 0.25}

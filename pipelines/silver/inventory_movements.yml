@@ -1,0 +1,21 @@
+# Columns, key and replica identity mirror the source (platform/cli.py validate checks them);
+# owner, description, expectations and freshness are ours to edit.
+dataset: silver.inventory_movements
+owner: catalog-data
+description: Current state of ecommerce.inventory_movements, one row per primary key.
+mode: streaming
+from: kafka:cdc.ecommerce.inventory_movements
+primary_key: [id]
+replica_identity: default
+columns:
+  id: bigint
+  sku_id: uuid
+  movement_type: character varying
+  on_hand_delta: integer
+  reserved_delta: integer
+  on_hand_after: integer
+  reserved_after: integer
+  ref_type: character varying
+  ref_id: uuid
+  created_at: timestamp with time zone
+freshness: {warn_after: 5m, error_after: 15m}

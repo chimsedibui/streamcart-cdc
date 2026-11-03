@@ -1,0 +1,26 @@
+# Columns, key and replica identity mirror the source (platform/cli.py validate checks them);
+# owner, description, expectations and freshness are ours to edit.
+dataset: silver.inventory
+owner: catalog-data
+description: "Stock per SKU: on hand, reserved for unpaid/unshipped orders, available to sell."
+mode: streaming
+from: kafka:cdc.ecommerce.inventory
+primary_key: [sku_id]
+replica_identity: full
+columns:
+  sku_id: uuid
+  shop_id: uuid
+  on_hand: integer
+  reserved: integer
+  available: integer
+  reorder_point: integer
+  last_restocked_at: timestamp with time zone
+  updated_at: timestamp with time zone
+expectations:
+  - name: available_is_on_hand_minus_reserved
+    sql: available = on_hand - reserved
+    on_fail: quarantine
+  - name: stock_not_negative
+    sql: on_hand >= 0 AND reserved >= 0
+    on_fail: quarantine
+freshness: {warn_after: 5m, error_after: 15m}

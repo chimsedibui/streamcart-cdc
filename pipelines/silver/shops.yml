@@ -1,0 +1,21 @@
+# Columns, key and replica identity mirror the source (platform/cli.py validate checks them);
+# owner, description, expectations and freshness are ours to edit.
+dataset: silver.shops
+owner: crm-data
+description: "Shops (one per seller): tier, commission rate and SLA penalty points."
+mode: streaming
+from: kafka:cdc.ecommerce.shops
+primary_key: [id]
+replica_identity: full
+columns:
+  id: uuid
+  seller_id: uuid
+  name: character varying
+  shop_tier: character varying
+  province: character varying
+  commission_rate_bps: integer
+  penalty_points: integer
+  is_active: boolean
+  created_at: timestamp with time zone
+  updated_at: timestamp with time zone
+freshness: {warn_after: 15m, error_after: 1h}

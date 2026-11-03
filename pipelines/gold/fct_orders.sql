@@ -1,0 +1,30 @@
+-- One row per order, with its shop and the business date it was placed on (Asia/Ho_Chi_Minh, business clock)
+SELECT
+    o.id                                                        AS order_id,
+    o.order_number,
+    o.shop_id,
+    s.name                                                      AS shop_name,
+    s.shop_tier,
+    o.customer_id,
+    o.status,
+    o.payment_method,
+    o.subtotal,
+    o.shop_discount,
+    o.platform_discount,
+    o.shipping_fee,
+    o.shipping_subsidy,
+    o.total,
+    CAST(o.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh' AS date)  AS order_date,
+    o.created_at,
+    o.paid_at,
+    o.confirm_by,
+    o.ready_at,
+    o.shipped_at,
+    o.delivered_at,
+    o.completed_at,
+    o.cancelled_at,
+    o.cancelled_by,
+    o.cancel_reason,
+    o.status = 'CANCELLED'                                      AS is_cancelled
+FROM silver.orders o
+LEFT JOIN silver.shops s ON s.id = o.shop_id

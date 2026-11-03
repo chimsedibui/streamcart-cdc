@@ -1,0 +1,58 @@
+# The platform's CI gates, cheapest first (docs/platform-plan.md §5):
+#   contract  specs lint, SQL and generated Flink job, and the source contract against source/postgres/init.sql
+#   test      every gold dataset's SQL on its fixtures, in Trino's memory catalog (same engine as production)
+name: platform
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: enterprise_db
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      PSQL: psql postgresql://postgres:postgres@localhost:5432/enterprise_db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r platform/requirements.txt
+      - name: Load the source schema
+        run: $PSQL -v ON_ERROR_STOP=1 -q -f source/postgres/init.sql
+      - name: platform validate
+        run: python platform/cli.py validate
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      trino:
+        image: trinodb/trino:484
+        ports: ["8080:8080"]
+    env:
+      TRINO_URL: http://localhost:8080
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r platform/requirements.txt
+      - name: Wait for Trino
+        run: |
+          for i in $(seq 1 60); do
+            curl -sf localhost:8080/v1/info | grep -q '"starting":false' && exit 0
+            sleep 3
+          done
+          exit 1
+      - name: platform test
+        run: python platform/cli.py test

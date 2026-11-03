@@ -1,0 +1,25 @@
+# Columns, key and replica identity mirror the source (platform/cli.py validate checks them);
+# owner, description, expectations and freshness are ours to edit.
+dataset: silver.vouchers
+owner: growth-data
+description: Current state of ecommerce.vouchers, one row per primary key.
+mode: streaming
+from: kafka:cdc.ecommerce.vouchers
+primary_key: [id]
+replica_identity: full
+columns:
+  id: uuid
+  code: character varying
+  scope: character varying
+  shop_id: uuid
+  kind: character varying
+  value: bigint
+  max_discount: bigint
+  min_spend: bigint
+  usage_limit: integer
+  per_customer_limit: integer
+  starts_at: timestamp with time zone
+  ends_at: timestamp with time zone
+  created_at: timestamp with time zone
+  updated_at: timestamp with time zone
+freshness: {warn_after: 15m, error_after: 1h}

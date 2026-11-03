@@ -1,0 +1,53 @@
+# Columns, key and replica identity mirror the source (platform/cli.py validate checks them);
+# owner, description, expectations and freshness are ours to edit.
+dataset: silver.orders
+owner: commerce-data
+description: "One row per order (one per shop of a checkout): current status, money breakdown and milestone timestamps (business time)."
+mode: streaming
+from: kafka:cdc.ecommerce.orders
+primary_key: [id]
+replica_identity: full
+columns:
+  id: uuid
+  order_number: character varying
+  checkout_id: uuid
+  customer_id: uuid
+  shop_id: uuid
+  status: character varying
+  payment_method: character varying
+  subtotal: bigint
+  shop_discount: bigint
+  platform_discount: bigint
+  shipping_fee: bigint
+  shipping_subsidy: bigint
+  total: bigint
+  ship_to_name: character varying
+  ship_to_address: character varying
+  ship_to_province: character varying
+  delivery_attempts: integer
+  confirm_by: timestamp with time zone
+  cancel_reason: character varying
+  cancelled_by: character varying
+  paid_at: timestamp with time zone
+  ready_at: timestamp with time zone
+  shipped_at: timestamp with time zone
+  delivered_at: timestamp with time zone
+  completed_at: timestamp with time zone
+  cancelled_at: timestamp with time zone
+  version: integer
+  created_at: timestamp with time zone
+  updated_at: timestamp with time zone
+expectations:
+  - name: total_matches_parts
+    sql: total = subtotal - shop_discount - platform_discount + shipping_fee - shipping_subsidy
+    on_fail: quarantine
+  - name: known_status
+    sql: status IN ('UNPAID', 'TO_SHIP', 'READY_TO_SHIP', 'SHIPPED', 'DELIVERY_FAILED', 'DELIVERED', 'COMPLETED', 'CANCELLED', 'RETURNED_TO_SELLER', 'RETURN_REFUND')
+    on_fail: quarantine
+  - name: sla_deadline_after_payment
+    sql: confirm_by IS NULL OR confirm_by > coalesce(paid_at, created_at)
+    on_fail: warn
+  - name: cancelled_has_time_and_actor
+    sql: status <> 'CANCELLED' OR (cancelled_at IS NOT NULL AND cancelled_by IS NOT NULL)
+    on_fail: warn
+freshness: {warn_after: 5m, error_after: 15m}

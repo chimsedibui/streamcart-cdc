@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""Reconciles lakehouse.silver.* (Iceberg, via Spark SQL) with the source tables in PostgreSQL.
+"""Reconciles the lakehouse with the source tables in PostgreSQL.
 
-Per table: row count, Σ version and max(updated_at) where the table has them, so a missed update shows up as well as
-a missed row. The source must hold still: stopping the simulator is not enough, because the Source API's scheduled
-jobs (auto-complete, cart abandonment, payouts) keep acting on the business clock. Slow the clock to a crawl too:
+silver (default): per table, via Spark SQL, row count, Σ version and max(updated_at) where the table has them, so a
+missed update shows up as well as a missed row.
+--gold: builds every gold dataset (write-audit-publish in Trino, as Dagster does), then compares each one that has a
+reconcile: block in its spec with the same metric computed on PostgreSQL (pipelines/gold/*.reconcile.sql).
+
+The source must hold still: stopping the simulator is not enough, because the Source API's scheduled jobs
+(auto-complete, cart abandonment, payouts) keep acting on the business clock. Slow the clock to a crawl too:
 
     curl -X POST localhost:8200/stop
     curl -X PUT localhost:8200/clock -H 'Content-Type: application/json' -d '{"speed":0.001}'
     quality/reconcile.py --wait 120      # exit 0 = silver equals the source; retries while silver catches up
+    quality/reconcile.py --gold          # exit 0 = every reconciled gold metric equals the source
     curl -X PUT localhost:8200/clock -H 'Content-Type: application/json' -d '{"speed":240}'
 """
 
@@ -17,8 +22,8 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "flink"))
-from gen_silver import PSQL, captured, source_tables  # noqa: E402
+sys.path.insert(0, str(ROOT / "platform"))
+from streamcart.source import PSQL, captured, source_tables  # noqa: E402
 
 SPARK_SQL = [str(ROOT / "lakehouse" / "spark-sql.sh")]
 
@@ -69,7 +74,27 @@ def compare(tables) -> list[str]:
     return bad
 
 
+def gold() -> int:
+    from streamcart import checks, specs, wap
+    from streamcart.engine import Trino
+    t, bad = Trino(), 0
+    for spec in specs.ordered(specs.load_all()):
+        if spec.mode != "batch":
+            continue
+        result = wap.build(spec, run_id="cli", t=t)
+        print(result.summary().splitlines()[0])
+        if result.outcome != "published":
+            return 1
+        if spec.reconcile:
+            c = checks.reconcile(t, spec, checks.source_rows(spec))
+            print(c.line())
+            bad += not c.passed
+    return 1 if bad else 0
+
+
 def main():
+    if "--gold" in sys.argv:
+        sys.exit(gold())
     wait = float(sys.argv[sys.argv.index("--wait") + 1]) if "--wait" in sys.argv else 0
     tables = captured(source_tables())
     deadline = time.monotonic() + wait

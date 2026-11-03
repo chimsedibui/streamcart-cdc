@@ -1,0 +1,29 @@
+dataset: gold.daily_gmv
+cases:
+  - name: GMV counts the orders that were not cancelled, per business day
+    given:
+      gold.fct_orders:
+        - {order_id: o1, customer_id: c1, order_date: "2026-10-01", subtotal: 100000, shop_discount: 5000,
+           platform_discount: 1000, total: 110000, is_cancelled: false}
+        - {order_id: o2, customer_id: c1, order_date: "2026-10-01", subtotal: 50000, shop_discount: 0,
+           platform_discount: 0, total: 70000, is_cancelled: false}
+        - {order_id: o3, customer_id: c2, order_date: "2026-10-01", subtotal: 900000, shop_discount: 0,
+           platform_discount: 0, total: 900000, is_cancelled: true}
+        - {order_id: o4, customer_id: c3, order_date: "2026-10-02", subtotal: 10000, shop_discount: 0,
+           platform_discount: 0, total: 30000, is_cancelled: false}
+    expect:
+      rows:
+        - {order_date: "2026-10-01", orders: 3, cancelled_orders: 1, valid_orders: 2, buyers: 1, gmv: 150000,
+           buyer_paid: 180000, discounts: 6000, aov: 90000.0}
+        - {order_date: "2026-10-02", orders: 1, cancelled_orders: 0, valid_orders: 1, buyers: 1, gmv: 10000,
+           buyer_paid: 30000, discounts: 0, aov: 30000.0, cancel_rate: 0.0}
+
+  - name: a day of cancelled orders only has no AOV and zero GMV
+    given:
+      gold.fct_orders:
+        - {order_id: o1, customer_id: c1, order_date: "2026-10-01", subtotal: 100000, shop_discount: 0,
+           platform_discount: 0, total: 100000, is_cancelled: true}
+    expect:
+      rows:
+        - {order_date: "2026-10-01", orders: 1, valid_orders: 0, buyers: 0, gmv: 0, buyer_paid: 0, aov: null,
+           cancel_rate: 1.0}

@@ -1,0 +1,18 @@
+# Columns, key and replica identity mirror the source (platform/cli.py validate checks them);
+# owner, description, expectations and freshness are ours to edit.
+dataset: silver.seller_ledger_entries
+owner: finance-data
+description: Current state of ecommerce.seller_ledger_entries, one row per primary key.
+mode: streaming
+from: kafka:cdc.ecommerce.seller_ledger_entries
+primary_key: [id]
+replica_identity: default
+columns:
+  id: bigint
+  shop_id: uuid
+  order_id: uuid
+  payout_id: uuid
+  entry_type: character varying
+  amount: bigint
+  created_at: timestamp with time zone
+freshness: {warn_after: 15m, error_after: 1h}

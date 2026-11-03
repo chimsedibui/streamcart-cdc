@@ -1,0 +1,24 @@
+# Columns, key and replica identity mirror the source (platform/cli.py validate checks them);
+# owner, description, expectations and freshness are ours to edit.
+dataset: silver.checkouts
+owner: commerce-data
+description: Current state of ecommerce.checkouts, one row per primary key.
+mode: streaming
+from: kafka:cdc.ecommerce.checkouts
+primary_key: [id]
+replica_identity: full
+columns:
+  id: uuid
+  customer_id: uuid
+  cart_id: uuid
+  address_id: uuid
+  payment_method: character varying
+  status: character varying
+  items_total: bigint
+  shipping_total: bigint
+  discount_total: bigint
+  grand_total: bigint
+  pay_by: timestamp with time zone
+  created_at: timestamp with time zone
+  updated_at: timestamp with time zone
+freshness: {warn_after: 5m, error_after: 15m}

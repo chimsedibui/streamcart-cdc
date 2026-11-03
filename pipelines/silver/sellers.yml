@@ -1,0 +1,16 @@
+# Columns, key and replica identity mirror the source (platform/cli.py validate checks them);
+# owner, description, expectations and freshness are ours to edit.
+dataset: silver.sellers
+owner: crm-data
+description: Current state of ecommerce.sellers, one row per primary key.
+mode: streaming
+from: kafka:cdc.ecommerce.sellers
+primary_key: [id]
+replica_identity: full
+columns:
+  id: uuid
+  legal_name: character varying
+  email: character varying
+  created_at: timestamp with time zone
+  updated_at: timestamp with time zone
+freshness: {warn_after: 15m, error_after: 1h}

@@ -1,0 +1,24 @@
+# Columns, key and replica identity mirror the source (platform/cli.py validate checks them);
+# owner, description, expectations and freshness are ours to edit.
+dataset: silver.refunds
+owner: finance-data
+description: "Money returned to buyers, against a payment (late payments have no order)."
+mode: streaming
+from: kafka:cdc.ecommerce.refunds
+primary_key: [id]
+replica_identity: full
+columns:
+  id: uuid
+  payment_id: uuid
+  order_id: uuid
+  return_id: uuid
+  amount: bigint
+  reason: character varying
+  status: character varying
+  created_at: timestamp with time zone
+  updated_at: timestamp with time zone
+expectations:
+  - name: amount_positive
+    sql: amount > 0
+    on_fail: quarantine
+freshness: {warn_after: 15m, error_after: 1h}
